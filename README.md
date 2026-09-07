@@ -3,8 +3,7 @@
 An academic mini-project implementing TinyML-based thermal power management on the STM32F446RE microcontroller, developed using STM32CubeMX and STM32CubeIDE.
 
 ## Overview
-
-This project explores on-device machine learning (TinyML) techniques applied to thermal power management on an embedded ARM Cortex-M4 platform. It was developed as part of a university course by a team of three.
+This project explores on-device machine learning (TinyML) techniques applied to thermal power management on an embedded ARM Cortex-M4 platform. It is being developed as part of a university course by a team of three.
 
 ## Hardware
 
@@ -34,7 +33,7 @@ This project explores on-device machine learning (TinyML) techniques applied to 
 
 ## Team
 
-Developed by a team of 3 as part of an academic course project.
+Is being developed by a team of 3 as part of an academic course project.
 
 ## Contribution Notes
 
