@@ -2,77 +2,65 @@
 /**
   ******************************************************************************
   * @file           : main.c
-  * @brief          : TinyML Power and Thermal Management
+  * @brief          : Main program body
+  ******************************************************************************
+  * @attention
   *
-  * Current Stage:
-  *  - Controlled workload generation
-  *  - CPU monitoring
-  *  - RAM monitoring
-  *  - UART telemetry
-  *  - INA219 I2C interface
+  * Copyright (c) 2026 STMicroelectronics.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
   ******************************************************************************
   */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "adc.h"
+#include "i2c.h"
+#include "tim.h"
+#include "usart.h"
+#include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
-#include "workload.h"
-#include "system_monitor.h"
-#include "telemetry.h"
-#include "ina219.h"
-#include <string.h>
-#include <stdio.h>
-
+#include "logging.h"
+#include "sensor_acquisition.h"
+#include "workload_generator.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
+
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-I2C_HandleTypeDef hi2c1;
-
-UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-
-/*
- * Select the controlled workload level.
- *
- * Options:
- *
- *     WORKLOAD_LOW
- *     WORKLOAD_MEDIUM
- *     WORKLOAD_HIGH
- */
-static WorkloadLevel_t current_workload = WORKLOAD_LOW;
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_USART2_UART_Init(void);
-static void MX_I2C1_Init(void);
-
-void I2C_BusTest(void);
-void I2C_Scan(void);
+/* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
 /* USER CODE END 0 */
 
 /**
@@ -84,67 +72,6 @@ int main(void)
 
   /* USER CODE BEGIN 1 */
 
-    /*
-     * CPU frequency.
-     */
-    uint32_t cpu_frequency_hz;
-
-    /*
-     * Requested workload percentage.
-     */
-    uint32_t requested_workload_percent;
-
-    /*
-     * Active and idle durations.
-     */
-    uint32_t active_time_ms;
-    uint32_t idle_time_ms;
-
-    /*
-     * Number of CPU cycles corresponding to
-     * the active workload duration.
-     */
-    uint32_t active_cycles;
-
-    /*
-     * Accumulated workload cycles.
-     */
-    uint32_t busy_cycles_total;
-
-    /*
-     * DWT cycle counter values.
-     */
-    uint32_t workload_start_cycle;
-    uint32_t workload_end_cycle;
-    uint32_t measurement_start_cycle;
-    uint32_t measurement_end_cycle;
-
-    /*
-     * Total cycles during measurement.
-     */
-    uint32_t total_cycles;
-
-    /*
-     * RAM measurements.
-     */
-    uint32_t static_ram_bytes;
-
-    /*
-     * Calculated percentages.
-     */
-    float cpu_load_percent;
-    float static_ram_percent;
-
-    /*
-     * Number of workload periods.
-     */
-    uint32_t number_of_periods;
-
-    /*
-     * Loop counter.
-     */
-    uint32_t i;
-
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -153,268 +80,49 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+
   /* USER CODE END Init */
 
   /* Configure the system clock */
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
+
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_USART2_UART_Init();
+  MX_ADC1_Init();
   MX_I2C1_Init();
+  MX_TIM2_Init();
+  MX_TIM3_Init();
+  MX_TIM4_Init();
+  MX_TIM14_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+  Log_Init(&huart2);
+  LOG_INFO(TAG_SENS, "Logging initialized, build %s %s", __DATE__, __TIME__);
 
-    /*
-     * ============================================================
-     * Initialize application modules
-     * ============================================================
-     */
-
-    /*
-     * Initialize DWT cycle counter and workload subsystem.
-     */
-    Workload_Init();
-
-    /*
-     * Initialize system monitoring subsystem.
-     */
-    SystemMonitor_Init();
-
-    /*
-     * Initialize telemetry subsystem.
-     */
-    Telemetry_Init();
-
-    /*
-     * ============================================================
-     * I2C DEVICE SCAN
-     * ============================================================
-     *
-     * Temporarily scan all valid 7-bit I2C addresses.
-     *
-     * We are using this to determine whether the STM32
-     * can detect the INA219 module.
-     *
-     * Expected default INA219 address:
-     *
-     *     0x40
-     *
-     */
-
-    I2C_BusTest();
-
-    /*
-     * Give the serial terminal time to initialize.
-     */
-    HAL_Delay(500);
-
-    /*
-     * Send CSV header.
-     */
-    Telemetry_SendHeader();
-
+  if (!Sensor_Init()) {
+      LOG_ERROR(TAG_SENS, "Sensor init failed — halting");
+      Error_Handler();
+  }
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-    while (1)
-    {
-        /*
-         * ========================================================
-         * 1. Read CPU frequency
-         * ========================================================
-         */
-        cpu_frequency_hz =
-            SystemMonitor_GetCPUFrequency();
-
-        /*
-         * ========================================================
-         * 2. Get selected workload percentage
-         * ========================================================
-         */
-        requested_workload_percent =
-            Workload_GetPercent(current_workload);
-
-        /*
-         * ========================================================
-         * 3. Calculate active and idle time
-         *
-         * LOW:
-         *     20 ms active
-         *     80 ms idle
-         *
-         * MEDIUM:
-         *     50 ms active
-         *     50 ms idle
-         *
-         * HIGH:
-         *     80 ms active
-         *     20 ms idle
-         *
-         * ========================================================
-         */
-
-        active_time_ms =
-            requested_workload_percent;
-
-        idle_time_ms =
-            100U - active_time_ms;
-
-        /*
-         * ========================================================
-         * 4. Convert active time to CPU cycles
-         * ========================================================
-         */
-        active_cycles =
-            (uint32_t)
-            (
-                (
-                    (uint64_t)cpu_frequency_hz *
-                    (uint64_t)active_time_ms
-                ) / 1000ULL
-            );
-
-        /*
-         * ========================================================
-         * 5. Number of workload periods
-         *
-         * Measurement window = 1000 ms
-         * Period               = 100 ms
-         *
-         * Therefore:
-         *
-         *     1000 / 100 = 10 periods
-         *
-         * ========================================================
-         */
-
-        number_of_periods = 10U;
-
-        /*
-         * Reset accumulated busy cycles.
-         */
-        busy_cycles_total = 0U;
-
-        /*
-         * Start complete measurement window.
-         */
-        measurement_start_cycle =
-            SystemMonitor_GetCycleCount();
-
-        /*
-         * ========================================================
-         * 6. Execute controlled workload
-         * ========================================================
-         */
-        for (i = 0U; i < number_of_periods; i++)
-        {
-            /*
-             * Start workload cycle measurement.
-             */
-            workload_start_cycle =
-                SystemMonitor_GetCycleCount();
-
-            /*
-             * Execute synthetic workload.
-             */
-            Workload_Run(active_cycles);
-
-            /*
-             * End workload cycle measurement.
-             */
-            workload_end_cycle =
-                SystemMonitor_GetCycleCount();
-
-            /*
-             * Accumulate actual workload cycles.
-             */
-            busy_cycles_total +=
-                (uint32_t)
-                (
-                    workload_end_cycle -
-                    workload_start_cycle
-                );
-
-            /*
-             * Execute idle period.
-             */
-            if (idle_time_ms > 0U)
-            {
-                HAL_Delay(idle_time_ms);
-            }
-        }
-
-        /*
-         * End complete measurement window.
-         */
-        measurement_end_cycle =
-            SystemMonitor_GetCycleCount();
-
-        /*
-         * ========================================================
-         * Calculate total elapsed cycles.
-         * ========================================================
-         */
-        total_cycles =
-            (uint32_t)
-            (
-                measurement_end_cycle -
-                measurement_start_cycle
-            );
-
-        /*
-         * ========================================================
-         * 7. Calculate CPU workload
-         * ========================================================
-         */
-        cpu_load_percent =
-            SystemMonitor_CalculateCPULoad(
-                busy_cycles_total,
-                total_cycles
-            );
-
-        /*
-         * ========================================================
-         * 8. Measure static RAM
-         * ========================================================
-         */
-        static_ram_bytes =
-            SystemMonitor_GetStaticRAM();
-
-        /*
-         * ========================================================
-         * 9. Calculate RAM utilization
-         * ========================================================
-         */
-        static_ram_percent =
-            SystemMonitor_CalculateRAMPercent(
-                static_ram_bytes
-            );
-
-        /*
-         * ========================================================
-         * 10. Send existing telemetry
-         *
-         * INA219 readings are intentionally NOT included yet.
-         *
-         * ========================================================
-         */
-        Telemetry_SendSample(
-            HAL_GetTick(),
-            cpu_frequency_hz,
-            cpu_load_percent,
-            static_ram_bytes,
-            static_ram_percent,
-            Workload_GetName(current_workload)
-        );
-    }
-
+  while (1)
+  {
+	    SensorReading_t reading;
+	    Sensor_ReadAll(&reading);
+	    LOG_INFO(TAG_SENS, "V=%.2fV I=%.1fmA P=%.1fmW Tp=%.1fC Ta=%.1fC",
+	             reading.voltage_v, reading.current_ma, reading.power_mw,
+	             reading.temp_primary_c, reading.temp_ambient_c);
+	    HAL_Delay(1000);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+  }
   /* USER CODE END 3 */
 }
 
@@ -435,13 +143,12 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLM = 16;
-  RCC_OscInitStruct.PLL.PLLN = 360;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 4;
+  RCC_OscInitStruct.PLL.PLLN = 180;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = 2;
   RCC_OscInitStruct.PLL.PLLR = 2;
@@ -472,126 +179,8 @@ void SystemClock_Config(void)
   }
 }
 
-/**
-  * @brief I2C1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_I2C1_Init(void)
-{
-
-  /* USER CODE BEGIN I2C1_Init 0 */
-  /* USER CODE END I2C1_Init 0 */
-
-  /* USER CODE BEGIN I2C1_Init 1 */
-  /* USER CODE END I2C1_Init 1 */
-  hi2c1.Instance = I2C1;
-  hi2c1.Init.ClockSpeed = 100000;
-  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
-  hi2c1.Init.OwnAddress1 = 0;
-  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-  hi2c1.Init.OwnAddress2 = 0;
-  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN I2C1_Init 2 */
-  /* USER CODE END I2C1_Init 2 */
-
-}
-
-/**
-  * @brief USART2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART2_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART2_Init 0 */
-  /* USER CODE END USART2_Init 0 */
-
-  /* USER CODE BEGIN USART2_Init 1 */
-  /* USER CODE END USART2_Init 1 */
-  huart2.Instance = USART2;
-  huart2.Init.BaudRate = 115200;
-  huart2.Init.WordLength = UART_WORDLENGTH_8B;
-  huart2.Init.StopBits = UART_STOPBITS_1;
-  huart2.Init.Parity = UART_PARITY_NONE;
-  huart2.Init.Mode = UART_MODE_TX_RX;
-  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART2_Init 2 */
-  /* USER CODE END USART2_Init 2 */
-
-}
-
-/**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_GPIO_Init(void)
-{
-  /* USER CODE BEGIN MX_GPIO_Init_1 */
-  /* USER CODE END MX_GPIO_Init_1 */
-
-  /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-
-  /* USER CODE BEGIN MX_GPIO_Init_2 */
-  /* USER CODE END MX_GPIO_Init_2 */
-}
-
 /* USER CODE BEGIN 4 */
 
-/*
- * Application functionality is kept inside its respective
- * modules:
- *
- *     workload.c
- *     system_monitor.c
- *     telemetry.c
- *     ina219.c
- *
- */
-void I2C_BusTest(void)
-{
-    GPIO_InitTypeDef GPIO_InitStruct = {0};
-    char msg[64];
-
-    /* Temporarily configure PB6 and PB7 as GPIO inputs */
-    GPIO_InitStruct.Pin = GPIO_PIN_6 | GPIO_PIN_7;
-    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-    GPIO_InitStruct.Pull = GPIO_PULLUP;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-
-    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-    HAL_Delay(10);
-
-    uint8_t scl = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_6);
-    uint8_t sda = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7);
-
-    int len = snprintf(msg,
-                       sizeof(msg),
-                       "I2C BUS: SCL=%d SDA=%d\r\n",
-                       scl,
-                       sda);
-
-    HAL_UART_Transmit(&huart2,
-                      (uint8_t *)msg,
-                      len,
-                      HAL_MAX_DELAY);
-}
 /* USER CODE END 4 */
 
 /**
@@ -601,20 +190,11 @@ void I2C_BusTest(void)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-
-    /*
-     * Disable interrupts.
-     */
-    __disable_irq();
-
-    /*
-     * Stay here if a peripheral or system initialization
-     * fails.
-     */
-    while (1)
-    {
-    }
-
+  /* User can add his own implementation to report the HAL error return state */
+  __disable_irq();
+  while (1)
+  {
+  }
   /* USER CODE END Error_Handler_Debug */
 }
 #ifdef USE_FULL_ASSERT
@@ -628,12 +208,8 @@ void Error_Handler(void)
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
-
-    /*
-     * User can add implementation to report the file name
-     * and line number.
-     */
-
+  /* User can add his own implementation to report the file name and line number,
+     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
