@@ -5,8 +5,8 @@
  *      Author: swaro
  */
 
-#ifndef INC_LOGGING_H_
-#define INC_LOGGING_H_
+#ifndef LOGGING_H
+#define LOGGING_H
 
 #include "usart.h"   /* CubeMX-generated — provides huart2 handle + UART_HandleTypeDef */
 #include <stdint.h>
@@ -20,12 +20,10 @@
 #define LOG_LEVEL_INFO   3
 #define LOG_LEVEL_DEBUG  4
 
-/* Build-time verbosity control. Lower value = less UART traffic.
- * Change this and rebuild to silence/unsilence levels — no code changes needed elsewhere. */
+/* Build-time verbosity control. Lower value = less UART traffic. */
 #define CURRENT_LOG_LEVEL   LOG_LEVEL_INFO
 
-/* Independent of CURRENT_LOG_LEVEL — gates the DATA, CSV channel only.
- * Turning debug verbosity down must NEVER suppress training data rows. */
+/* Independent of CURRENT_LOG_LEVEL — gates the DATA, CSV channel only. */
 #define DATA_LOGGING_ENABLED 1
 
 /* ============================================================
@@ -37,26 +35,28 @@
 #define TAG_ML     "ML"     /* ML Inference */
 #define TAG_REACT  "REACT"  /* Reaction/Battery Calc */
 #define TAG_DISP   "DISP"   /* Display/Output */
+#define TAG_SYS    "SYS"    /* System Resource Monitoring */
 
 /* ============================================================
  * Public API
  * ============================================================ */
 
-/* Call once at startup, after MX_USART2_UART_Init(). */
 void Log_Init(UART_HandleTypeDef *huart);
 
-/* Called by the LOG_* macros below — not intended to be called directly. */
 void Log_Write(uint8_t level, const char *level_str, const char *tag, const char *fmt, ...);
 
-/* Emits one DATA,-prefixed CSV row. Field order must match the PC-side pyserial script:
- * DATA,timestamp_ms,power_mw,voltage_v,current_ma,temp_primary_c,temp_ambient_c,workload_level */
+/* Emits one DATA,-prefixed CSV row. UPDATED field order — now includes
+ * CPU frequency and stack/heap usage per the project's problem statement
+ * ("CPU frequency, workload and memory usage"). Field order must match the
+ * PC-side pyserial script:
+ * DATA,timestamp_ms,power_mw,voltage_v,current_ma,temp_primary_c,
+ *      temp_ambient_c,workload_level,cpu_freq_hz,stack_used_bytes,heap_used_bytes */
 void Log_Data(uint32_t timestamp_ms, float power_mw, float voltage_v, float current_ma,
-              float temp_primary_c, float temp_ambient_c, uint8_t workload_level);
+              float temp_primary_c, float temp_ambient_c, uint8_t workload_level,
+              uint32_t cpu_freq_hz, uint32_t stack_used_bytes, uint32_t heap_used_bytes);
 
 /* ============================================================
  * Logging Macros — compile-time filtered.
- * Disabled levels compile to nothing (dead code eliminated), so there is
- * zero runtime cost for a level you've turned off via CURRENT_LOG_LEVEL.
  * ============================================================ */
 
 #if CURRENT_LOG_LEVEL >= LOG_LEVEL_ERROR
@@ -83,5 +83,4 @@ void Log_Data(uint32_t timestamp_ms, float power_mw, float voltage_v, float curr
   #define LOG_DEBUG(tag, fmt, ...) ((void)0)
 #endif
 
-
-#endif /* INC_LOGGING_H_ */
+#endif /* LOGGING_H */
