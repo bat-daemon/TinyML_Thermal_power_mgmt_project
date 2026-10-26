@@ -2,13 +2,15 @@
 """
 Capture STM32 UART DATA rows into a validated CSV file.
 
-Expected firmware row:
-DATA,timestamp_ms,power_mw,voltage_v,current_ma,temp_primary_c,
-     temp_ambient_c,workload_level,cpu_freq_hz,stack_used_bytes,heap_used_bytes
+Expected firmware row (17 fields after DATA, see DataRecord_t in logging.h):
+DATA,timestamp_ms,power_mw,voltage_v,current_ma,temp_die_c,temp_rise_c,
+     temp_ambient_c,workload_req,workload_eff,cpu_freq_hz,stack_used_bytes,
+     heap_used_bytes,fan_pct,temp_risk,power_risk,rule_temp_risk,mode
 
 Example:
     python capture_data.py --port COM5 --samples 1000
-    python capture_data.py --port COM5 --samples 500 --output data/run1.csv
+    python capture_data.py --port COM5 --samples 3600 --output data/run1.csv
+    python capture_data.py --port COM5 --samples 14400 --output data/auto1.csv --send "MODE AUTO"
 
 Install dependency:
     python -m pip install pyserial
@@ -38,13 +40,22 @@ CSV_FIELDS = [
     "power_mw",
     "voltage_v",
     "current_ma",
-    "temp_primary_c",
+    "temp_die_c",
+    "temp_rise_c",
     "temp_ambient_c",
-    "workload_level",
+    "workload_req",
+    "workload_eff",
     "cpu_freq_hz",
     "stack_used_bytes",
     "heap_used_bytes",
+    "fan_pct",
+    "temp_risk",
+    "power_risk",
+    "rule_temp_risk",
+    "mode",
 ]
+INT_FIELDS = (0,) + tuple(range(7, 17))
+FLOAT_FIELDS = tuple(range(1, 7))
 
 EXPECTED_DATA_FIELDS = len(CSV_FIELDS)
 DEFAULT_BAUD = 115200
@@ -74,6 +85,12 @@ def parse_args():
             "in the current directory. Existing files are appended to only "
             "when their header exactly matches the expected schema."
         ),
+    )
+    parser.add_argument(
+        "--send",
+        action="append",
+        default=[],
+        help='Command to send to the board before capturing, e.g. --send "MODE AUTO". Repeatable.',
     )
     parser.add_argument(
         "--baud",
@@ -126,7 +143,7 @@ def prepare_output(path: Path):
         if existing_header != CSV_FIELDS:
             raise ValueError(
                 f"Refusing to append to '{path}': CSV header does not match "
-                "the expected 10-field schema.\n"
+                f"the expected {EXPECTED_DATA_FIELDS}-field schema.\n"
                 f"Expected: {','.join(CSV_FIELDS)}\n"
                 f"Found:    {','.join(existing_header or [])}\n"
                 "Choose a new --output path or move the old file aside."
@@ -139,7 +156,7 @@ def prepare_output(path: Path):
 
 def parse_data_line(line: str):
     """
-    Return a list of the 10 data fields, or raise ValueError if malformed.
+    Return a list of the data fields, or raise ValueError if malformed.
     Non-DATA lines should be filtered before calling this function.
     """
     try:
@@ -161,13 +178,8 @@ def parse_data_line(line: str):
     if any(field == "" for field in fields):
         raise ValueError("one or more fields are empty")
 
-    # Integer-valued fields.
-    for index, name in (
-        (0, "timestamp_ms"),
-        (7, "cpu_freq_hz"),
-        (8, "stack_used_bytes"),
-        (9, "heap_used_bytes"),
-    ):
+    for index in INT_FIELDS:
+        name = CSV_FIELDS[index]
         try:
             value = int(fields[index], 10)
         except ValueError as exc:
@@ -175,27 +187,16 @@ def parse_data_line(line: str):
         if value < 0:
             raise ValueError(f"{name} must be non-negative")
         fields[index] = str(value)
-
     # Floating-point measurement fields. Current/power are not forced positive,
     # because reversed sensor wiring can produce signed measurements.
-    for index, name in (
-        (1, "power_mw"),
-        (2, "voltage_v"),
-        (3, "current_ma"),
-        (4, "temp_primary_c"),
-        (5, "temp_ambient_c"),
-    ):
+    for index in FLOAT_FIELDS:
+        name = CSV_FIELDS[index]
         try:
             value = float(fields[index])
         except ValueError as exc:
             raise ValueError(f"{name} is not numeric: {fields[index]!r}") from exc
         if not math.isfinite(value):
             raise ValueError(f"{name} must be finite, got {fields[index]!r}")
-
-    # Workload may be a textual enum (IDLE/LOW/MEDIUM/HIGH) or a numeric level.
-    if not fields[6]:
-        raise ValueError("workload_level is empty")
-
     return fields
 
 
@@ -240,6 +241,10 @@ def main():
             ) as ser:
                 # Discard stale bytes buffered before capture begins.
                 ser.reset_input_buffer()
+                for command in args.send:
+                    ser.write((command.strip() + "\r\n").encode("ascii"))
+                    ser.flush()
+                    print(f"Sent: {command.strip()}")
 
                 while valid_count < args.samples:
                     try:

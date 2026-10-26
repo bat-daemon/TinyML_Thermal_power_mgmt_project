@@ -43,6 +43,20 @@
 #define ADC_FAIL_TEMP   (-273.15f)   /* impossible reading, signals failure to caller */
 
 /* ============================================================
+ * Internal die temperature sensor — factory calibration (RM0390 / DS10693)
+ * Raw values were taken at VDDA = 3.3 V, 30 degC and 110 degC.
+ * ============================================================ */
+#define F4_TS_CAL1_ADDR        ((const uint16_t *)0x1FFF7A2CUL)
+#define F4_TS_CAL2_ADDR        ((const uint16_t *)0x1FFF7A2EUL)
+#define F4_VREFINT_CAL_ADDR    ((const uint16_t *)0x1FFF7A2AUL)
+#define TS_CAL1_TEMP_C      30.0f
+#define TS_CAL2_TEMP_C      110.0f
+#define DIE_OVERSAMPLE      16u
+/* Datasheet typicals, used only if the calibration words look erased */
+#define TS_V25_MV           760.0f
+#define TS_AVG_SLOPE_MV_C   2.5f
+
+/* ============================================================
  * INA219 register I/O
  * ============================================================ */
 static bool ina219_write_reg(uint8_t reg, uint16_t value)
@@ -120,6 +134,31 @@ bool Sensor_ReadPower(float *voltage_v, float *current_ma, float *power_mw)
 /* ============================================================
  * LM35 reads
  * ============================================================ */
+/* Averages `samples` conversions of one channel. Returns -1 on failure. */
+static float adc_read_raw_avg(uint32_t channel, uint32_t sampling_time, uint32_t samples)
+{
+    ADC_ChannelConfTypeDef sConfig = {0};
+    sConfig.Channel = channel;
+    sConfig.Rank = 1;
+    sConfig.SamplingTime = sampling_time;
+    if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK) {
+        LOG_ERROR(TAG_SENS, "ADC channel config failed (channel %lu)", channel);
+        return -1.0f;
+    }
+    uint32_t sum = 0;
+    for (uint32_t i = 0; i < samples; i++) {
+        HAL_ADC_Start(&hadc1);
+        if (HAL_ADC_PollForConversion(&hadc1, 10) != HAL_OK) {
+            HAL_ADC_Stop(&hadc1);
+            LOG_ERROR(TAG_SENS, "ADC conversion timeout (channel %lu)", channel);
+            return -1.0f;
+        }
+        sum += HAL_ADC_GetValue(&hadc1);
+        HAL_ADC_Stop(&hadc1);
+    }
+    return (float)sum / (float)samples;
+}
+
 static float adc_read_channel(uint32_t channel)
 {
     ADC_ChannelConfTypeDef sConfig = {0};
@@ -155,10 +194,36 @@ float Sensor_ReadTempAmbient(void)
     return adc_read_channel(ADC_CHANNEL_1); /* PA1 */
 }
 
+float Sensor_ReadTempDie(void)
+{
+    /* The sensor needs >= 10 us sampling; 480 cycles at 22.5 MHz ADC clock = 21 us.
+     * HAL_ADC_ConfigChannel sets TSVREFE in ADC->CCR for these two channels. */
+    float vref_raw = adc_read_raw_avg(ADC_CHANNEL_VREFINT, ADC_SAMPLETIME_480CYCLES, DIE_OVERSAMPLE);
+    float ts_raw   = adc_read_raw_avg(ADC_CHANNEL_TEMPSENSOR, ADC_SAMPLETIME_480CYCLES, DIE_OVERSAMPLE);
+    if (vref_raw <= 0.0f || ts_raw <= 0.0f) {
+        return ADC_FAIL_TEMP;
+    }
+
+    uint16_t cal1 = *F4_TS_CAL1_ADDR;
+    uint16_t cal2 = *F4_TS_CAL2_ADDR;
+    uint16_t vref_cal = *F4_VREFINT_CAL_ADDR;
+
+    if (cal1 == 0 || cal1 == 0xFFFF || cal2 <= cal1 || vref_cal == 0 || vref_cal == 0xFFFF) {
+        /* Fallback: datasheet typicals, assuming VDDA = 3.3 V */
+        float mv = ts_raw * ADC_VREF_MV / ADC_MAX_COUNTS;
+        return (mv - TS_V25_MV) / TS_AVG_SLOPE_MV_C + 25.0f;
+    }
+
+    /* Rescale the reading to what it would be at VDDA = 3.3 V (the calibration condition) */
+    float ts_at_cal_vdda = ts_raw * ((float)vref_cal / vref_raw);
+    return (TS_CAL2_TEMP_C - TS_CAL1_TEMP_C) / (float)(cal2 - cal1)
+           * (ts_at_cal_vdda - (float)cal1) + TS_CAL1_TEMP_C;
+}
+
 bool Sensor_ReadAll(SensorReading_t *out)
 {
     bool power_ok = Sensor_ReadPower(&out->voltage_v, &out->current_ma, &out->power_mw);
-    out->temp_primary_c = Sensor_ReadTempPrimary();
+    out->temp_die_c = Sensor_ReadTempDie();
     out->temp_ambient_c = Sensor_ReadTempAmbient();
     return power_ok;
 }
