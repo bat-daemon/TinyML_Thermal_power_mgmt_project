@@ -30,7 +30,7 @@ Only the INA219 is required (the firmware halts at boot without it). The die tem
 | Part | Connections |
 |---|---|
 | INA219 (required) | VCC → 3V3, GND → GND, SDA → PB9 (D14), SCL → PB8 (D15). JP6 (IDD) jumper removed: Vin+ → JP6 regulator side, Vin− → JP6 MCU side |
-| RGB LED, common cathode | R → 470 Ω (yellow-violet-**brown**, not 470 kΩ) → PC7 (D9), G → 470 Ω → PB6 (D10), B → 470 Ω → PA7 (D11), cathode → GND |
+| RGB LED, common cathode | R → 470 Ω → PC7 (D9), G → 470 Ω → PB6 (D10), B → 470 Ω → PA7 (D11), cathode → GND |
 | Potentiometer (optional) | One end → 3V3, other end → GND, middle (wiper) → PA0 (A0). Type `WL POT` to use it |
 | LM35 ambient (optional) | +Vs → 5V, Vout → PA1 (A1), GND → GND, in open air |
 | Fan via L293D (optional) | See section 8 |
