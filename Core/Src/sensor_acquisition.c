@@ -20,10 +20,12 @@
 #define INA219_REG_CURRENT    0x04
 #define INA219_REG_CALIB      0x05
 
-/* Config: 32V bus range, PGA /8 (+-320mV shunt range), 12-bit ADC on both
- * channels, continuous shunt+bus conversion. Standard config for a 0.1 ohm
- * shunt (confirmed via R100 marking) supporting up to ~3.2A measurable current. */
-#define INA219_CONFIG_VALUE   0x399F
+/* Config: 32V bus range, PGA /8 (+-320mV shunt range), 12-bit bus ADC,
+ * shunt ADC averaging 128 samples (68 ms), continuous conversion. The MCU
+ * current switches between sleep (~19 mA) and run (~44 mA) many times per
+ * millisecond, so a single 532 us sample aliases badly; averaging fixes it.
+ * 0.1 ohm shunt (confirmed via R100 marking), up to ~3.2A measurable. */
+#define INA219_CONFIG_VALUE   0x39FF
 
 /* Calibration for Rshunt = 0.1 ohm, max expected current 3.2A:
  * Current_LSB = 0.1 mA/bit

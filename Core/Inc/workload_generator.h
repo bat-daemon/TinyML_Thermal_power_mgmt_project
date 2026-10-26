@@ -54,7 +54,9 @@ WorkloadLevel_t Workload_GetEffectiveLevel(void);
 /* Duty cycle of the effective level, in percent of each sample slot. */
 uint32_t Workload_GetDutyPercent(void);
 
-/* Burns CPU for the busy part of the current sample slot, then returns.
+/* Burns CPU for the busy part of the current sample slot, returning at least
+ * every WORKLOAD_SLICE_MAX_MS so the caller can sample power; call it again
+ * until the busy part is over.
  * slot_start_ms is HAL_GetTick() at the start of the slot. Returns early
  * if *abort_flag becomes non-zero (e.g. the next sample tick or a UART
  * command arrived). The caller sleeps (__WFI) for the rest of the slot. */

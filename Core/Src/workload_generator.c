@@ -101,9 +101,13 @@ static void busy_chunk(void)
 void Workload_RunSlice(uint32_t slot_start_ms, uint32_t slot_len_ms, volatile uint8_t *abort_flag)
 {
     uint32_t busy_ms = slot_len_ms * Workload_GetDutyPercent() / 100u;
+    uint32_t call_start = HAL_GetTick();
     while ((HAL_GetTick() - slot_start_ms) < busy_ms) {
         if (abort_flag != NULL && *abort_flag) {
             return;
+        }
+        if ((HAL_GetTick() - call_start) >= WORKLOAD_SLICE_MAX_MS) {
+            return;   /* let the main loop sample power and poll commands */
         }
         busy_chunk();
     }

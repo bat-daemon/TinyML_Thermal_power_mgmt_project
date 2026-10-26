@@ -15,6 +15,8 @@
 #define FEATURE_WINDOW          10u    /* samples (= seconds) per sliding window */
 #define TEMP_SMOOTH_N           4u     /* moving average applied to the die temperature */
 #define BASELINE_SAMPLES        10u    /* idle samples averaged at boot for the baseline */
+#define POWER_SAMPLE_MS         50u    /* INA219 is read this often and averaged per tick */
+#define WORKLOAD_SLICE_MAX_MS   20u    /* busy loop returns to the main loop at least this often */
 
 /* ============================================================
  * Default thresholds (rise above the idle baseline, in degC).
@@ -37,7 +39,7 @@
 /* ============================================================
  * Stage 1 reaction
  * ============================================================ */
-#define REACT_RELEASE_TICKS     5u     /* calm ticks needed before the cap is raised one level */
+#define REACT_RELEASE_TICKS     10u    /* calm ticks needed before the cap is raised one level */
 #define FAN_PCT_NORMAL          0u
 #define FAN_PCT_CAUTION         60u
 #define FAN_PCT_CRITICAL        100u
@@ -56,6 +58,11 @@
 #define FAN_PWM_HZ              5000u
 #define FAN_MIN_RUN_PCT         35u    /* below this most 12 V fans stall, so it is raised */
 #define FAN_KICK_MS             400u   /* full power for this long when starting from 0 */
+
+/* ============================================================
+ * RGB status LED
+ * ============================================================ */
+#define LED_COMMON_ANODE        0      /* set to 1 if the RGB LED's common leg goes to 3V3 */
 
 /* ============================================================
  * Battery estimate (no real battery: the user enters one with "BAT")

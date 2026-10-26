@@ -75,6 +75,13 @@ static float    baseline_c = 0.0f;
 static float    temp_hist[TEMP_SMOOTH_N];
 static uint32_t temp_count = 0;
 
+/* Power averaged over each 1 s slot (sampled every POWER_SAMPLE_MS) */
+static float    pwr_sum_mw = 0.0f;
+static float    cur_sum_ma = 0.0f;
+static float    volt_sum_v = 0.0f;
+static uint32_t pwr_n = 0;
+static uint32_t last_power_ms = 0;
+
 static uint32_t slot_start_ms = 0;
 static uint32_t last_tick_ms = 0;
 
@@ -112,6 +119,17 @@ void App_RecalibrateBaseline(void)
     LOG_INFO(TAG_SENS, "Measuring idle baseline for %u s...", (unsigned)BASELINE_SAMPLES);
 }
 
+static void sample_power(void)
+{
+    float v, i, p;
+    if (Sensor_ReadPower(&v, &i, &p)) {
+        pwr_sum_mw += p;
+        cur_sum_ma += i;
+        volt_sum_v += v;
+        pwr_n++;
+    }
+}
+
 static float smooth_temp(float t)
 {
     temp_hist[temp_count % TEMP_SMOOTH_N] = t;
@@ -134,6 +152,14 @@ static void App_Tick(void)
     if (!Sensor_ReadAll(&r)) {
         LOG_WARN(TAG_SENS, "INA219 read failed this tick");
     }
+    if (pwr_n > 0) {
+        /* Replace the single snapshot with the average over the whole slot */
+        r.power_mw = pwr_sum_mw / (float)pwr_n;
+        r.current_ma = cur_sum_ma / (float)pwr_n;
+        r.voltage_v = volt_sum_v / (float)pwr_n;
+    }
+    pwr_sum_mw = cur_sum_ma = volt_sum_v = 0.0f;
+    pwr_n = 0;
 
     float t_smooth = smooth_temp(r.temp_die_c);
     if (calibrating) {
@@ -296,6 +322,11 @@ int main(void)
         tick_flag = 0;
         slot_start_ms = HAL_GetTick();
         App_Tick();
+    }
+
+    if ((HAL_GetTick() - last_power_ms) >= POWER_SAMPLE_MS) {
+        last_power_ms = HAL_GetTick();
+        sample_power();
     }
 
     /* Busy part of the slot (duty cycle of the effective level), then sleep.
