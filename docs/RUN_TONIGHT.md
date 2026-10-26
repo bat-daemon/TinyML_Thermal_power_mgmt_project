@@ -89,7 +89,7 @@ python scripts/train_model.py --data data/*.csv
 ```
 
 This writes `Core/Inc/model_weights.h` and `model_out/report.md` (ML vs slope rule: accuracy, false alarms, critical recall, warning lead time), plus `model_out/prediction_example.png` for the report.
-It picks limits from the data (50 % / 80 % of the observed max rise). To set them yourself:
+It picks limits from the training part of the data only (50 % / 80 % of the 98th-percentile rise). To set them yourself:
 
 ```
 python scripts/train_model.py --data data/*.csv --caution-rise 3 --critical-rise 5

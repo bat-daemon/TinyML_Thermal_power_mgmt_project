@@ -11,7 +11,7 @@ Candidates (each predicts temperature risk and power risk, 3 classes):
     decision tree        depth-limited tree
     random forest        50 trees
     MLP 7-8-3            one hidden layer of 8
-    MLP 7-16-16-3        two hidden layers of 16 (the model train_model.py exports)
+    MLP 7-16-16-3        two hidden layers of 16 (the architecture train_model.py exports)
 
 Models whose training is random (random forest, MLPs) are trained with
 several seeds (--seeds, default 5) and reported as mean +- standard
@@ -49,17 +49,10 @@ def parse_args():
 
 
 def build_split(segments, h):
-    """Same thresholds, labels and chronological 75/25 split as train_model.main()."""
-    all_rise = np.concatenate([s["temp_rise_c"].to_numpy() for s in segments])
-    all_pow = np.concatenate([s["power_mw"].to_numpy() for s in segments])
-    rise_hi = float(np.percentile(all_rise, 98))
-    p_lo, p_hi = float(np.percentile(all_pow, 5)), float(np.percentile(all_pow, 98))
-    thr = {
-        "caution_rise": round(0.5 * rise_hi, 1),
-        "critical_rise": round(0.8 * rise_hi, 1),
-        "caution_power": round(p_lo + 0.55 * (p_hi - p_lo), 1),
-        "critical_power": round(p_lo + 0.85 * (p_hi - p_lo), 1),
-    }
+    """Same limits, labels and chronological split as train_model.main(). The
+    last 15 % of the training part is held out as a validation set: models are
+    chosen on validation scores, and the test part is only used to report."""
+    thr = tm.thresholds_from_train(segments, h)[0]
     tr, te = [], []
     for seg in segments:
         X = tm.compute_features(seg)
@@ -67,7 +60,7 @@ def build_split(segments, h):
         valid = np.arange(tm.FEATURE_WINDOW - 1, len(seg) - h)
         yt = tm.classify(fut_rise[valid], thr["caution_rise"], thr["critical_rise"])
         yp = tm.classify(fut_pow[valid], thr["caution_power"], thr["critical_power"])
-        cut = int(len(valid) * 0.75)
+        cut = int(len(valid) * tm.TRAIN_FRACTION)
         tr.append((X[valid[:cut]], yt[:cut], yp[:cut]))
         te.append((X[valid[cut:]], yt[cut:], yp[cut:]))
     cat = lambda parts, k: np.concatenate([p[k] for p in parts])
@@ -79,6 +72,10 @@ def tree_params(t):
     return int(t.tree_.node_count * 5)
 
 
+VAL_FRACTION = 0.15   # last 15 % of the training part, same as train_model.py's validation_split
+MCU_BUDGET_KB = 64.0  # models larger than this are reported but not eligible for the MCU
+
+
 def main():
     args = parse_args()
     segments = tm.load_segments(args.data, args.include_run)
@@ -86,40 +83,48 @@ def main():
     mean, std = Xtr.mean(axis=0), Xtr.std(axis=0)
     std[std < 1e-6] = 1.0
     Ztr, Zte = (Xtr - mean) / std, (Xte - mean) / std
-    print(f"Train rows {len(Xtr)}, test rows {len(Xte)}, thresholds {thr}")
+    # chronological validation set: the end of the training part
+    nv = int(len(Ztr) * VAL_FRACTION)
+    Zfit, Zva = Ztr[:-nv], Ztr[-nv:]
+    yfit_t, yva_t, yfit_p, yva_p = ytr_t[:-nv], ytr_t[-nv:], ytr_p[:-nv], ytr_p[-nv:]
+    print(f"Fit rows {len(Zfit)}, validation rows {len(Zva)}, test rows {len(Zte)}, limits {thr}")
 
     seeds = [args.seed + k for k in range(args.seeds)]
-    results = []  # (name, params, [temp metrics per run], [power metrics per run], MCU note)
+    # each entry: name, params, note, runs; a run = dict(val_t, val_p, test_t, test_p) of metric dicts
+    results = []
 
-    rt, rp = tm.rule_predict(Xte, args.horizon, thr["caution_rise"], thr["critical_rise"],
-                             thr["caution_power"], thr["critical_power"])
-    results.append(("Slope rule (baseline)", 4, [tm.metrics(yte_t, rt)], [tm.metrics(yte_p, rp)],
-                    "a few lines of C"))
+    def run_of(pred_va_t, pred_va_p, pred_te_t, pred_te_p):
+        return {"val_t": tm.metrics(yva_t, pred_va_t), "val_p": tm.metrics(yva_p, pred_va_p),
+                "test_t": tm.metrics(yte_t, pred_te_t), "test_p": tm.metrics(yte_p, pred_te_p)}
+
+    rule = lambda X: tm.rule_predict(X, args.horizon, thr["caution_rise"], thr["critical_rise"],
+                                     thr["caution_power"], thr["critical_power"])
+    (rvt, rvp), (rtt, rtp) = rule(Xtr[-nv:]), rule(Xte)
+    results.append(("Slope rule (baseline)", 4, "a few lines of C", [run_of(rvt, rvp, rtt, rtp)]))
 
     from sklearn.linear_model import LogisticRegression
     from sklearn.tree import DecisionTreeClassifier
     from sklearn.ensemble import RandomForestClassifier
 
     def fit_pair(make):
-        mt = make().fit(Ztr, ytr_t, sample_weight=tm.class_weights(ytr_t))
-        mp = make().fit(Ztr, ytr_p, sample_weight=tm.class_weights(ytr_p))
-        return mt, mp, tm.metrics(yte_t, mt.predict(Zte)), tm.metrics(yte_p, mp.predict(Zte))
+        mt = make().fit(Zfit, yfit_t, sample_weight=tm.class_weights(yfit_t))
+        mp = make().fit(Zfit, yfit_p, sample_weight=tm.class_weights(yfit_p))
+        return mt, mp, run_of(mt.predict(Zva), mp.predict(Zva), mt.predict(Zte), mp.predict(Zte))
 
-    mt, mp, a, b = fit_pair(lambda: LogisticRegression(max_iter=2000))
+    mt, mp, r = fit_pair(lambda: LogisticRegression(max_iter=2000))
     results.append(("Logistic regression", mt.coef_.size + mt.intercept_.size + mp.coef_.size + mp.intercept_.size,
-                    [a], [b], "tiny, X-CUBE-AI or hand C"))
+                    "tiny, X-CUBE-AI or hand C", [r]))
 
-    mt, mp, a, b = fit_pair(lambda: DecisionTreeClassifier(max_depth=8, random_state=args.seed))
-    results.append(("Decision tree (depth 8)", tree_params(mt) + tree_params(mp), [a], [b],
-                    "if/else code; overfits easily"))
+    mt, mp, r = fit_pair(lambda: DecisionTreeClassifier(max_depth=8, random_state=args.seed))
+    results.append(("Decision tree (depth 8)", tree_params(mt) + tree_params(mp), "if/else code", [r]))
 
-    runs_t, runs_p, size = [], [], 0
+    runs, size = [], 0
     for sd in seeds:
         print(f"Random forest, seed {sd}")
-        mt, mp, a, b = fit_pair(lambda: RandomForestClassifier(n_estimators=50, max_depth=8, random_state=sd))
-        runs_t.append(a); runs_p.append(b)
-        size = sum(tree_params(e) for e in mt.estimators_) + sum(tree_params(e) for e in mp.estimators_)
-    results.append(("Random forest (50 trees)", size, runs_t, runs_p, "large for an MCU"))
+        mt, mp, r = fit_pair(lambda: RandomForestClassifier(n_estimators=50, max_depth=8, random_state=sd))
+        runs.append(r)
+        size = max(size, sum(tree_params(e) for e in mt.estimators_) + sum(tree_params(e) for e in mp.estimators_))
+    results.append(("Random forest (50 trees)", size, "large for an MCU", runs))
 
     import tensorflow as tf
 
@@ -134,54 +139,68 @@ def main():
         m = tf.keras.Model(inp, [out_t, out_p])
         m.compile(optimizer=tf.keras.optimizers.Adam(3e-3),
                   loss=["sparse_categorical_crossentropy", "sparse_categorical_crossentropy"])
-        m.fit(Ztr, [ytr_t, ytr_p], sample_weight=[tm.class_weights(ytr_t), tm.class_weights(ytr_p)],
-              validation_split=0.15, epochs=args.epochs, batch_size=64, verbose=0,
+        m.fit(Zfit, [yfit_t, yfit_p], sample_weight=[tm.class_weights(yfit_t), tm.class_weights(yfit_p)],
+              validation_data=(Zva, [yva_t, yva_p]), epochs=args.epochs, batch_size=64, verbose=0,
               callbacks=[tf.keras.callbacks.EarlyStopping(patience=15, restore_best_weights=True)])
+        vt, vp = m.predict(Zva, verbose=0)
         pt, pp = m.predict(Zte, verbose=0)
-        return m.count_params(), tm.metrics(yte_t, pt.argmax(1)), tm.metrics(yte_p, pp.argmax(1))
+        return m.count_params(), run_of(vt.argmax(1), vp.argmax(1), pt.argmax(1), pp.argmax(1))
 
-    for name, hidden in [("MLP 7-8-3 (1 hidden layer)", [8]), ("MLP 7-16-16-3 (chosen)", [16, 16])]:
-        runs_t, runs_p = [], []
+    for name, hidden in [("MLP 7-8-3 (1 hidden layer)", [8]), ("MLP 7-16-16-3", [16, 16])]:
+        runs = []
         for sd in seeds:
             print(f"{name}, seed {sd}")
-            n, a, b = mlp(hidden, sd)
-            runs_t.append(a); runs_p.append(b)
-        results.append((name, n, runs_t, runs_p, "X-CUBE-AI / plain C"))
+            n, r = mlp(hidden, sd)
+            runs.append(r)
+        results.append((name, n, "X-CUBE-AI / plain C", runs))
 
-    # ---------- report
-    def stat(runs, key):
-        v = np.array([r[key] for r in runs], dtype=float)
+    # ---------- selection: on VALIDATION only, among models that fit the MCU budget
+    def stat(runs, part, key):
+        v = np.array([r[part][key] for r in runs], dtype=float)
         return v.mean(), v.std()
 
-    def fmt(runs, key):
-        m, sd = stat(runs, key)
+    def score(entry):   # mean of temperature and power macro F1 on validation
+        return 0.5 * (stat(entry[3], "val_t", "macro_f1")[0] + stat(entry[3], "val_p", "macro_f1")[0])
+
+    eligible = [e for e in results if e[1] * 4 / 1024 <= MCU_BUDGET_KB and not e[0].startswith("Slope")]
+    chosen = max(eligible, key=score)
+
+    def fmt(runs, part, key):
+        m, sd = stat(runs, part, key)
         return f"{m:.3f}" if len(runs) == 1 else f"{m:.3f} ± {sd:.3f}"
 
     lines = [
         "# Model comparison",
         "",
-        f"Same data, features, labels and split as train_model.py: train rows {len(Xtr)}, "
-        f"test rows {len(Xte)} (last 25 % of each recording). Horizon {args.horizon} s.",
-        f"Limits: caution +{thr['caution_rise']} C / critical +{thr['critical_rise']} C; "
-        f"power {thr['caution_power']} / {thr['critical_power']} mW.",
-        f"Random forest and MLPs: mean ± standard deviation over {len(seeds)} training seeds "
-        f"({seeds[0]}-{seeds[-1]}); the other rows are deterministic.",
+        f"Same data, features, labels and chronological split as train_model.py: fit rows {len(Zfit)}, "
+        f"validation rows {len(Zva)} (end of the training part), test rows {len(Zte)} (last 25 % of each recording). "
+        f"Horizon {args.horizon} s. Limits (from the training part only): caution +{thr['caution_rise']} C / "
+        f"critical +{thr['critical_rise']} C; power {thr['caution_power']} / {thr['critical_power']} mW.",
+        f"Random forest and MLPs: mean ± standard deviation over {len(seeds)} seeds ({seeds[0]}-{seeds[-1]}).",
         "",
-        "| Model | Parameters | Size (float32) | Temp accuracy | Temp macro F1 | Temp critical recall | "
-        "Temp false alarms | Power accuracy | Power macro F1 | MCU deployment |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        f"**Selection rule (fixed before looking at the test set):** highest mean of temperature and power macro F1 "
+        f"on the validation rows, among models of at most {MCU_BUDGET_KB:.0f} KB. **Selected: {chosen[0]}** "
+        f"(validation score {score(chosen):.3f}).",
+        "",
+        "| Model | Parameters | Size (float32) | Val temp F1 | Val power F1 | Test temp accuracy | Test temp macro F1 | "
+        "Test temp critical recall | Test temp false alarms | Test power accuracy | Test power macro F1 | MCU deployment |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
-    csv = ["model,params,runs,temp_acc,temp_acc_sd,temp_f1,temp_f1_sd,temp_crit_recall,temp_false_alarm,"
-           "power_acc,power_f1,power_f1_sd"]
-    for name, params, rt_, rp_, note in results:
-        lines.append(f"| {name} | {params} | {params * 4 / 1024:.1f} KB | {fmt(rt_, 'accuracy')} | "
-                     f"{fmt(rt_, 'macro_f1')} | {fmt(rt_, 'critical_recall')} | {fmt(rt_, 'false_alarm_rate')} | "
-                     f"{fmt(rp_, 'accuracy')} | {fmt(rp_, 'macro_f1')} | {note} |")
-        ta, tas = stat(rt_, "accuracy"); tf1, tf1s = stat(rt_, "macro_f1")
-        pf1, pf1s = stat(rp_, "macro_f1")
-        csv.append(f"{name},{params},{len(rt_)},{ta:.4f},{tas:.4f},{tf1:.4f},{tf1s:.4f},"
-                   f"{stat(rt_, 'critical_recall')[0]:.4f},{stat(rt_, 'false_alarm_rate')[0]:.4f},"
-                   f"{stat(rp_, 'accuracy')[0]:.4f},{pf1:.4f},{pf1s:.4f}")
+    csv = ["model,params,runs,val_score,val_temp_f1,val_power_f1,temp_acc,temp_acc_sd,temp_f1,temp_f1_sd,"
+           "temp_crit_recall,temp_false_alarm,power_acc,power_f1,power_f1_sd,selected"]
+    for e in results:
+        name, params, note, runs = e
+        lines.append(f"| {name}{' **(selected)**' if e is chosen else ''} | {params} | {params * 4 / 1024:.1f} KB | "
+                     f"{fmt(runs, 'val_t', 'macro_f1')} | {fmt(runs, 'val_p', 'macro_f1')} | "
+                     f"{fmt(runs, 'test_t', 'accuracy')} | {fmt(runs, 'test_t', 'macro_f1')} | "
+                     f"{fmt(runs, 'test_t', 'critical_recall')} | {fmt(runs, 'test_t', 'false_alarm_rate')} | "
+                     f"{fmt(runs, 'test_p', 'accuracy')} | {fmt(runs, 'test_p', 'macro_f1')} | {note} |")
+        g = lambda part, key, i=0: stat(runs, part, key)[i]
+        csv.append(f"{name},{params},{len(runs)},{score(e):.4f},{g('val_t','macro_f1'):.4f},{g('val_p','macro_f1'):.4f},"
+                   f"{g('test_t','accuracy'):.4f},{g('test_t','accuracy',1):.4f},{g('test_t','macro_f1'):.4f},"
+                   f"{g('test_t','macro_f1',1):.4f},{g('test_t','critical_recall'):.4f},{g('test_t','false_alarm_rate'):.4f},"
+                   f"{g('test_p','accuracy'):.4f},{g('test_p','macro_f1'):.4f},{g('test_p','macro_f1',1):.4f},"
+                   f"{int(e is chosen)}")
     text = "\n".join(lines) + "\n"
     args.out_dir.mkdir(parents=True, exist_ok=True)
     (args.out_dir / "comparison.md").write_text(text)

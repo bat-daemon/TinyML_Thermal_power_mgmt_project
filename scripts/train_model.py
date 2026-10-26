@@ -34,6 +34,7 @@ FEATURE_NAMES = [
 ]
 CLASS_NAMES = ["NORMAL", "CAUTION", "CRITICAL"]
 GAP_MS = 2500          # a bigger jump between rows starts a new segment
+TRAIN_FRACTION = 0.75  # chronological split: first 75 % of each segment trains, last 25 % tests
 HIDDEN1 = 16
 HIDDEN2 = 16
 
@@ -135,6 +136,30 @@ def rule_predict(X, h, c_rise, k_rise, c_pow, k_pow):
     rise_future = X[:, 0] + t_slope * h
     p_future = X[:, 3] + X[:, 5] * h
     return classify(rise_future, c_rise, k_rise), classify(p_future, c_pow, k_pow)
+
+
+def train_rows(seg, h):
+    """Rows of a segment that belong to the training part (same cut as main())."""
+    n_valid = max(len(seg) - h - (FEATURE_WINDOW - 1), 0)
+    return seg.iloc[: FEATURE_WINDOW - 1 + int(n_valid * TRAIN_FRACTION)]
+
+
+def thresholds_from_train(segments, h, args=None):
+    """Class limits from the TRAINING part of the data only, so the test part
+    has no influence on the labels. Explicit --caution-rise etc. override."""
+    tr = [train_rows(s, h) for s in segments]
+    rise = np.concatenate([s["temp_rise_c"].to_numpy() for s in tr])
+    pw = np.concatenate([s["power_mw"].to_numpy() for s in tr])
+    rise_hi = float(np.percentile(rise, 98))
+    p_lo, p_hi = float(np.percentile(pw, 5)), float(np.percentile(pw, 98))
+    get = lambda name: getattr(args, name, None) if args is not None else None
+    thr = {
+        "caution_rise": get("caution_rise") if get("caution_rise") is not None else round(0.5 * rise_hi, 1),
+        "critical_rise": get("critical_rise") if get("critical_rise") is not None else round(0.8 * rise_hi, 1),
+        "caution_power": get("caution_power") if get("caution_power") is not None else round(p_lo + 0.55 * (p_hi - p_lo), 1),
+        "critical_power": get("critical_power") if get("critical_power") is not None else round(p_lo + 0.85 * (p_hi - p_lo), 1),
+    }
+    return thr, rise_hi, p_lo, p_hi
 
 
 # ------------------------------------------------------------------ metrics
@@ -247,16 +272,7 @@ def main():
     print("Loading data")
     segments = load_segments(args.data, args.include_run)
 
-    all_rise = np.concatenate([s["temp_rise_c"].to_numpy() for s in segments])
-    all_pow = np.concatenate([s["power_mw"].to_numpy() for s in segments])
-    rise_hi = float(np.percentile(all_rise, 98))
-    p_lo, p_hi = float(np.percentile(all_pow, 5)), float(np.percentile(all_pow, 98))
-    thr = {
-        "caution_rise": args.caution_rise if args.caution_rise is not None else round(0.5 * rise_hi, 1),
-        "critical_rise": args.critical_rise if args.critical_rise is not None else round(0.8 * rise_hi, 1),
-        "caution_power": args.caution_power if args.caution_power is not None else round(p_lo + 0.55 * (p_hi - p_lo), 1),
-        "critical_power": args.critical_power if args.critical_power is not None else round(p_lo + 0.85 * (p_hi - p_lo), 1),
-    }
+    thr, rise_hi, p_lo, p_hi = thresholds_from_train(segments, h, args)
     print(f"Observed: max rise ~{rise_hi:.1f} C, power {p_lo:.0f}-{p_hi:.0f} mW")
     print(f"Thresholds: {thr}")
     if rise_hi < 3.0:
@@ -271,7 +287,7 @@ def main():
         valid = np.arange(FEATURE_WINDOW - 1, len(seg) - h)
         yt = classify(fut_rise[valid], thr["caution_rise"], thr["critical_rise"])
         yp = classify(fut_pow[valid], thr["caution_power"], thr["critical_power"])
-        cut = int(len(valid) * 0.75)   # chronological split: last 25 % of each segment is test
+        cut = int(len(valid) * TRAIN_FRACTION)   # chronological split: last 25 % of each segment is test
         tr_X.append(X[valid[:cut]]); tr_yt.append(yt[:cut]); tr_yp.append(yp[:cut])
         te.append({"X": X[valid[cut:]], "yt": yt[cut:], "yp": yp[cut:],
                    "rise": seg["temp_rise_c"].to_numpy()[valid[cut:]],
@@ -384,7 +400,8 @@ Confusion matrices (rows = true NORMAL/CAUTION/CRITICAL, columns = predicted):
     # ---------- plot (optional)
     try:
         import matplotlib
-        matplotlib.use("Agg")
+        if "ipykernel" not in sys.modules:   # keep inline plots working when run from the notebook
+            matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         di = max(range(len(te)), key=lambda k: te[k]["rise"].max())
         d = te[di]
