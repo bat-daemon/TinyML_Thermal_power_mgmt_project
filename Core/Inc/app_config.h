@@ -60,6 +60,18 @@
 #define FAN_KICK_MS             400u   /* full power for this long when starting from 0 */
 
 /* ============================================================
+ * Inference engine
+ *   0 = plain C exported by train_model.py (model_weights.h)
+ *   1 = X-CUBE-AI runtime (needs the X-CUBE-AI pack enabled in the .ioc
+ *       with a network named "network" from model_out/model.tflite;
+ *       see docs/XCUBEAI.md). The plain C network still runs next to it
+ *       every tick, so both inference times and any disagreement are logged.
+ * ============================================================ */
+#ifndef INFERENCE_ENGINE_XCUBEAI
+#define INFERENCE_ENGINE_XCUBEAI  0
+#endif
+
+/* ============================================================
  * Potentiometer workload dial (optional)
  *   Pot ends -> 3V3 and GND, wiper -> PA0 (Arduino A0)
  *   "WL POT" turns it on; "WL 0-3" or the B1 button go back to manual.

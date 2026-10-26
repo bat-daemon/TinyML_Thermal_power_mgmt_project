@@ -223,10 +223,18 @@ static void App_Tick(void)
              pred.model_used ? "ML" : "RULE", Risk_Name(pred.temp_risk), Risk_Name(pred.rule_temp_risk),
              Risk_Name(pred.power_risk), (unsigned)Fan_GetPercent(),
              (double)Battery_GetPercent(), (double)Battery_GetHoursLeft());
-    LOG_INFO(TAG_SYS, "CPU=%luMHz stack=%luB heap=%luB inference=%luus pot=%.0f%%(%s)",
-             (unsigned long)(rec.cpu_freq_hz / 1000000u), (unsigned long)rec.stack_used_bytes,
-             (unsigned long)rec.heap_used_bytes, (unsigned long)pred.inference_us,
-             (double)pot_pct, Workload_PotIsEnabled() ? "ON" : "off, type WL POT");
+    if (pred.engine_xcubeai) {
+        LOG_INFO(TAG_SYS, "CPU=%luMHz stack=%luB heap=%luB inference: X-CUBE-AI %luus, plain C %luus, differ %lu pot=%.0f%%(%s)",
+                 (unsigned long)(rec.cpu_freq_hz / 1000000u), (unsigned long)rec.stack_used_bytes,
+                 (unsigned long)rec.heap_used_bytes, (unsigned long)pred.inference_xai_us,
+                 (unsigned long)pred.inference_c_us, (unsigned long)Predictor_GetEngineMismatches(),
+                 (double)pot_pct, Workload_PotIsEnabled() ? "ON" : "off");
+    } else {
+        LOG_INFO(TAG_SYS, "CPU=%luMHz stack=%luB heap=%luB inference=%luus (plain C) pot=%.0f%%(%s)",
+                 (unsigned long)(rec.cpu_freq_hz / 1000000u), (unsigned long)rec.stack_used_bytes,
+                 (unsigned long)rec.heap_used_bytes, (unsigned long)pred.inference_us,
+                 (double)pot_pct, Workload_PotIsEnabled() ? "ON" : "off, type WL POT");
+    }
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)

@@ -24,7 +24,10 @@ typedef struct {
     RiskLevel_t rule_temp_risk;  /* baseline, always computed */
     RiskLevel_t rule_power_risk;
     uint8_t     model_used;      /* 1 if a trained model produced temp/power risk */
-    uint32_t    inference_us;    /* time spent in the network, for the report */
+    uint8_t     engine_xcubeai;  /* 1 if X-CUBE-AI produced temp/power risk, 0 for plain C */
+    uint32_t    inference_us;    /* time of the engine whose output is used */
+    uint32_t    inference_c_us;  /* plain C network (always runs when trained) */
+    uint32_t    inference_xai_us;/* X-CUBE-AI network (0 when not enabled) */
 } Prediction_t;
 
 void Predictor_Init(void);
@@ -37,5 +40,9 @@ float Predictor_GetCriticalRise(void);
 uint32_t Predictor_GetHorizonS(void);
 
 const char *Risk_Name(RiskLevel_t r);
+
+/* Inference engine status, for the [SYS] line */
+uint8_t  Predictor_EngineIsXcubeAi(void);
+uint32_t Predictor_GetEngineMismatches(void);
 
 #endif /* PREDICTOR_H */
