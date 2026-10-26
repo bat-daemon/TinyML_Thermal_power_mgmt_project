@@ -1,79 +1,106 @@
-# ML-Based Predictive Power and Thermal Management System for Embedded Computing Platforms
+# Predictive Thermal and Power Management on an STM32 with TinyML
 
-A closed-loop, on-device machine learning system for real-time power and thermal management on microcontroller-based embedded platforms. Built on the STM32F446RE (Nucleo), the system continuously monitors electrical and thermal parameters, predicts near-future power draw and temperature risk, estimates remaining energy budget, and proactively throttles workload to prevent overheating — entirely on-device, with no host PC in the loop.
+A small neural network running on an STM32 Nucleo-F446RE predicts, 15 seconds ahead, whether the chip is heading for a thermal or power problem, and the firmware reacts **before** the limit is reached: it caps the workload, sets the fan and the status LED, and updates a battery-life estimate. Everything runs on the microcontroller; no PC is needed in the loop.
 
-## Overview
+```
+ sense (1 Hz)            features (10 s window)       predict (15 s ahead)        react
+ INA219 power  ──┐                                    ┌─ temperature risk ─┐      workload cap
+ die temp      ──┼──►  7 features  ──►  MLP 7-16-16 ──┤                    ├──►   fan, RGB LED
+ workload      ──┘                                    └─ power risk ───────┘      battery estimate
+                                                       Normal / Caution / Critical
+```
 
-Embedded and IoT platforms often lack the intelligence to anticipate power or thermal issues before they occur. This project builds a low-cost monitoring and prediction pipeline that:
+## Results
 
-- Measures real-time electrical parameters (via INA219) and system telemetry (workload/activity level)
-- Trains and deploys an on-device ML model (via X-CUBE-AI) to classify near-future **risk state** — Normal / Caution / Critical — for both power and temperature
-- Estimates remaining battery/energy budget using a deterministic rule-based calculation derived from predicted power draw
-- Issues early warnings and automatically throttles workload (staged response: workload balancing → low-power states → dynamic clock scaling) before thresholds are breached
-- Displays live status via OLED, UART, and RGB LED indicators
+Measured on the last 45 minutes of a 3 h recording that the model never saw during training:
 
-The MVP targets a full closed-loop demo — prediction driving actual mitigation — rather than a passive dashboard.
+| | ML model (MLP) | Slope rule (baseline) |
+|---|---|---|
+| Temperature risk accuracy | **95.5 %** | 92.4 % |
+| Power risk macro F1 | **0.90** | 0.76 |
+| Size | 502 parameters, 2 KB | a few lines of C |
+
+The rule is fine when the load is steady but fails at load changes: it raises a false CRITICAL on short bursts and mis-predicts power after a step down. The model learned the board's real heating curve and tells these cases apart.
+
+On the board (X-CUBE-AI 10.2.1, STM32F446RE at 180 MHz):
+
+| | Value |
+|---|---|
+| Inference time | 64 µs with X-CUBE-AI, 136 µs with the plain C export (Debug build) |
+| Model memory | 2.0 KB weights, 128 B activations, 12.7 KB flash / 2.6 KB RAM including ST's runtime |
+| X-CUBE-AI vs Keras | 100 % agreement, RMSE ≤ 1.4e-7 (desktop validation); 0 disagreements with the plain C engine on the board |
+| Whole firmware | 79 KB flash, 20 KB RAM |
 
 ## Hardware
 
-- STM32 Nucleo-F446RE
-- INA219 power monitor module (I2C)
-- 2x LM35DZ analog temperature sensors — one board-mounted (taped to MCU package), one ambient
-- 0.96" SSD1306 OLED display (I2C)
-- Common-cathode RGB LED (status indication: normal/warning/critical)
-- Push button (onboard B1)
-- Breadboard, jumper wires, 470Ω resistors
-
-### Pin Assignments
-
-| Peripheral | Pins | Notes |
+| Part | Nucleo pin | Notes |
 |---|---|---|
-| INA219 + OLED | I2C1 — PB9 (D14/SDA), PB8 (D15/SCL) | Shared bus |
-| LM35 (board temp) | PA0 (A0) | Taped to MCU package |
-| LM35 (ambient) | PA1 (A1) | Physically separate from board |
-| RGB LED (R/G/B) | PC7 (D9), PB6 (D10), PA7 (D11) | Contiguous PWM pins |
-| Push button | PC13 (B1) | Onboard |
-| UART debug | PA2/PA3 | Onboard ST-Link VCP, no extra wiring |
+| INA219 power monitor | SDA PB9 (D14), SCL PB8 (D15), VCC 3V3 | **Required.** Vin+ / Vin− across the JP6 (IDD) header with the jumper removed, so it measures only the MCU |
+| SSD1306 OLED 128×64 | same I2C pins, VCC 3V3 | Optional, detected at boot |
+| RGB LED, common cathode | PC7 (D9), PB6 (D10), PA7 (D11), each through 470 Ω | Blue = measuring, green / yellow / red = Normal / Caution / Critical |
+| Potentiometer | wiper to PA0 (A0), ends to 3V3 and GND | Optional, sets the workload |
+| LM35 (ambient) | PA1 (A1), +Vs 5V | Optional, logged only |
+| Fan via L293D | EN1 PA8 (D7), IN1 PB5 (D4), IN2 PB4 (D5) | Optional, 12 V supply |
 
-## Project Structure
+The temperature comes from the MCU's own factory-calibrated sensor. All limits are expressed as a rise above an idle baseline measured at boot, so the chip-to-chip offset of the sensor cancels out.
+
+## Repository
+
+| Path | What it is |
+|---|---|
+| `Core/` | Firmware (STM32CubeIDE project, HAL). Settings in `Core/Inc/app_config.h` |
+| `X-CUBE-AI/`, `Middlewares/ST/AI/` | Network code and runtime generated by X-CUBE-AI from `model_out/model.tflite` |
+| `scripts/capture_data.py` | Records the board's 1 Hz `DATA` lines to CSV |
+| `scripts/compare_models.py` | Trains 6 candidate models and picks one on validation data |
+| `scripts/train_model.py` | Trains the chosen MLP and exports `Core/Inc/model_weights.h` and `model_out/model.tflite` |
+| `notebooks/training_walkthrough.ipynb` | The whole training pipeline step by step, with plots |
+| `data/auto1.csv` | The 3 h training recording |
+| `model_out/` | Trained model, comparison table, report and plots |
+
+## Build and run
+
+1. Open the folder in **STM32CubeIDE** and build. Make sure *Project → Properties → C/C++ Build → Settings → MCU Settings → Use float with printf* is ticked.
+2. Flash, and open a serial terminal at **115200** baud.
+3. Keep the board idle for the first 10 s (LED blue) while it measures the baseline.
+
+Every second the board prints a readable status line and a `[SYS]` line, plus a `DATA` CSV line for logging:
 
 ```
-Mini_project_v2/
-├── Core/
-│   ├── Inc/
-│   │   ├── adc.h                  # ADC config (LM35 sensor reads)
-│   │   ├── gpio.h
-│   │   ├── i2c.h                  # INA219 / OLED bus
-│   │   ├── logging.h              # UART/debug logging
-│   │   ├── sensor_acquisition.h   # Unified sensor read pipeline
-│   │   ├── tim.h                  # Timers (PWM for RGB LED, scheduling)
-│   │   ├── usart.h
-│   │   └── workload_generator.h   # Synthetic load generation for demo
-│   └── Src/
-│       └── (corresponding .c files)
-├── Drivers/
-│   └── STM32F4xx_HAL_Driver/      # HAL modules incl. ADC, TIM
-├── Mini_project_v2.ioc            # CubeMX configuration
-├── LICENSE
-└── README.md
+T=34.6C rise=+1.6C P=221mW WL=HIGH/MED TEMP(ML):CAUTION TEMP(rule):NORMAL PWR(ML):CRITICAL PWR(rule):CRITICAL fan=60% bat=99.9% 50.7h
+CPU=180MHz stack=1412B heap=428B inference: X-CUBE-AI 64us, plain C 136us, differ 0 pot=33%(ON)
 ```
 
-**Note on restructuring:** earlier standalone modules (`ina219.c/h`, `telemetry.c/h`, `system_monitor.c/h`, `workload.c/h`) have been consolidated and renamed into `sensor_acquisition`, `logging`, `adc`/`i2c`/`tim`/`usart`, and `workload_generator` to better reflect a layered HAL-driven architecture.
+### Commands (type in the terminal)
 
-## ML Approach
+| Command | Effect |
+|---|---|
+| `MODE RUN` / `MODE COLLECT` / `MODE AUTO` | Predict and react (default) / predict only / random workload for data collection |
+| `WL 0`…`WL 3`, `WL POT` | Workload IDLE / LOW / MED / HIGH, or follow the potentiometer |
+| `BAT 2000 3.7` | What-if battery capacity (mAh) and voltage |
+| `LIM 5.5 8.9` | Caution / critical limits in °C above the baseline |
+| `BASE` | Re-measure the idle baseline |
+| `FAN 0-100` / `FAN AUTO`, `LED r g b` / `LED AUTO`, `OLED 0/1` | Manual tests |
+| `HELP` | List commands |
 
-- **Task framing:** classification (not regression) — predicts risk state (Normal/Caution/Critical) at a fixed future prediction horizon *H*, determined empirically from initial data collection
-- **Outputs:** separate risk heads for power and temperature (shared single model, two output heads); battery/energy risk is computed deterministically from predicted power, not ML-predicted
-- **Deployment:** X-CUBE-AI (STM32Cube expansion pack) generates optimized C inference code from the trained model — no external TFLite Micro runtime
+## Retrain the model
 
-## Status
+```
+python -m pip install tensorflow scikit-learn pandas numpy matplotlib jupyter
+python scripts/capture_data.py --port COM5 --samples 10800 --output data/new.csv --send "MODE AUTO"
+python scripts/compare_models.py --data data/*.csv
+python scripts/train_model.py --data data/*.csv
+```
 
-🚧 Actively in development — see project board / commit history for current progress.
+Or run `notebooks/training_walkthrough.ipynb` top to bottom. Then rebuild. With X-CUBE-AI enabled (`INFERENCE_ENGINE_XCUBEAI 1`), open the `.ioc` in STM32CubeMX, point the `network` model at the new `model_out/model.tflite`, and regenerate. The board checks at boot that both engines agree.
 
-## Team
+**Method:** labels are what actually happened in the next 15 s; the split is chronological (no shuffling); the class limits come from the training part only; the model is chosen by a fixed rule on a validation set within a 64 KB budget; randomised models are reported as mean ± sd over 5 seeds.
 
-Collaborative academic mini-project, team of 3.
+## Limitations and next steps
+
+- One 3 h recording on one board in one room. Next: more sessions and conditions (enclosure, fan, another room), with a held-out condition as the test.
+- Compare against a physics-based (first-order thermal) model and measure the closed-loop benefit: peak temperature and time over the limit with and without the reaction.
+- Energy per inference and a Release-build timing comparison.
 
 ## License
 
-See [LICENSE](./LICENSE).
+MIT, see [LICENSE](LICENSE). X-CUBE-AI generated code and runtime are under ST's license, see [LICENSE_X-CUBE-AI.txt](LICENSE_X-CUBE-AI.txt).
