@@ -216,12 +216,15 @@ static void App_Tick(void)
     };
     Log_Data(&rec);
 
-    LOG_INFO(TAG_DISP, "T=%.1fC rise=%+.1fC slope=%+.2fC/s P=%.0fmW WL=%s/%s %s:%s rule:%s P:%s fan=%u%% bat=%.1f%% %.1fh inf=%luus",
-             (double)r.temp_die_c, (double)rise, (double)feat[FEAT_TEMP_SLOPE10], (double)r.power_mw,
+    LOG_INFO(TAG_DISP, "T=%.1fC Ta=%.1fC rise=%+.1fC slope=%+.2fC/s P=%.0fmW WL=%s/%s %s:%s rule:%s P:%s fan=%u%% bat=%.1f%% %.1fh",
+             (double)r.temp_die_c, (double)r.temp_ambient_c, (double)rise, (double)feat[FEAT_TEMP_SLOPE10], (double)r.power_mw,
              LEVEL_NAMES[wl_req], LEVEL_NAMES[Workload_GetEffectiveLevel()],
              pred.model_used ? "ML" : "RULE", Risk_Name(pred.temp_risk), Risk_Name(pred.rule_temp_risk),
              Risk_Name(pred.power_risk), (unsigned)Fan_GetPercent(),
-             (double)Battery_GetPercent(), (double)Battery_GetHoursLeft(), (unsigned long)pred.inference_us);
+             (double)Battery_GetPercent(), (double)Battery_GetHoursLeft());
+    LOG_INFO(TAG_SYS, "CPU=%luMHz stack=%luB heap=%luB inference=%luus",
+             (unsigned long)(rec.cpu_freq_hz / 1000000u), (unsigned long)rec.stack_used_bytes,
+             (unsigned long)rec.heap_used_bytes, (unsigned long)pred.inference_us);
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)

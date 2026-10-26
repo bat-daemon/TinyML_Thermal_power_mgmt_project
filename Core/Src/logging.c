@@ -23,7 +23,7 @@ void Log_Write(uint8_t level, const char *level_str, const char *tag, const char
         return;
     }
 
-    char buf[160];
+    char buf[256];   /* status lines run past 160 chars */
 
     int len = snprintf(buf, sizeof(buf), "[%05lu][%s][%s] ",
                         (unsigned long)HAL_GetTick(), level_str, tag);
