@@ -45,8 +45,9 @@ void Workload_SetLevel(WorkloadLevel_t level)
         LOG_WARN(TAG_WKLD, "Requested workload level %d out of range, clamping to HIGH", (int)level);
         level = WORKLOAD_HIGH;
     }
+    static const char *names[] = { "IDLE", "LOW", "MED", "HIGH" };
     current_level = level;
-    LOG_INFO(TAG_WKLD, "Workload level set to %d", (int)current_level);
+    LOG_INFO(TAG_WKLD, "Requested workload = %s", names[current_level]);
 }
 
 WorkloadLevel_t Workload_GetLevel(void)
@@ -65,8 +66,9 @@ void Workload_SetCap(WorkloadLevel_t cap)
     if (cap >= WORKLOAD_LEVEL_COUNT) {
         cap = WORKLOAD_HIGH;
     }
+    static const char *names[] = { "IDLE", "LOW", "MED", "HIGH" };
     if (cap != cap_level) {
-        LOG_INFO(TAG_WKLD, "Workload cap set to %d", (int)cap);
+        LOG_INFO(TAG_REACT, "Reaction limit: max allowed workload = %s", names[cap]);
     }
     cap_level = cap;
 }

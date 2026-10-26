@@ -14,7 +14,7 @@
 #define MODEL_HORIZON_S          15
 #define MODEL_CAUTION_RISE_C     6.0f
 #define MODEL_CRITICAL_RISE_C    9.0f
-#define MODEL_CAUTION_POWER_MW   110.0f
-#define MODEL_CRITICAL_POWER_MW  135.0f
+#define MODEL_CAUTION_POWER_MW   130.0f   /* measured: IDLE ~69, LOW ~96, MED ~140, HIGH ~183 mW */
+#define MODEL_CRITICAL_POWER_MW  170.0f
 
 #endif /* MODEL_WEIGHTS_H */

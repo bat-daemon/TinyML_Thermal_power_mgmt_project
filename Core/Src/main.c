@@ -114,7 +114,7 @@ void App_RecalibrateBaseline(void)
     baseline_sum = 0.0f;
     temp_count = 0;
     Features_Reset();
-    Workload_SetCap(WORKLOAD_IDLE);   /* baseline must be measured at idle */
+    Workload_SetCap(WORKLOAD_IDLE);   /* baseline must be measured at idle (no log: not a reaction) */
     StatusLed_ShowCalibrating();
     LOG_INFO(TAG_SENS, "Measuring idle baseline for %u s...", (unsigned)BASELINE_SAMPLES);
 }
@@ -216,7 +216,7 @@ static void App_Tick(void)
     };
     Log_Data(&rec);
 
-    LOG_INFO(TAG_DISP, "T=%.1fC Ta=%.1fC rise=%+.1fC slope=%+.2fC/s P=%.0fmW WL=%s/%s %s:%s rule:%s P:%s fan=%u%% bat=%.1f%% %.1fh",
+    LOG_INFO(TAG_DISP, "T=%.1fC Ta=%.1fC rise=%+.1fC slope=%+.2fC/s P=%.0fmW WL=%s/%s TEMP(%s):%s TEMP(rule):%s PWR:%s fan=%u%% bat=%.1f%% %.1fh",
              (double)r.temp_die_c, (double)r.temp_ambient_c, (double)rise, (double)feat[FEAT_TEMP_SLOPE10], (double)r.power_mw,
              LEVEL_NAMES[wl_req], LEVEL_NAMES[Workload_GetEffectiveLevel()],
              pred.model_used ? "ML" : "RULE", Risk_Name(pred.temp_risk), Risk_Name(pred.rule_temp_risk),

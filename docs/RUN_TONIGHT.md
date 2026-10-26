@@ -59,6 +59,7 @@ If the debugger loses the board after flashing (the CPU sleeps a lot now), set D
 | `LIM 5 8` | Caution / critical limits in °C above baseline |
 | `BASE` | Re-measure the idle baseline (do this once the board settles in a new room) |
 | `FAN 100` / `FAN AUTO` | Manual fan test / back to automatic |
+| `LED 100 0 0` / `LED AUTO` | Manual LED test (R G B in %) / back to risk colours |
 
 ## 4. Heat test (about 15 min, do this first)
 

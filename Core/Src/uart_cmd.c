@@ -9,6 +9,7 @@
 #include "fan.h"
 #include "predictor.h"
 #include "workload_generator.h"
+#include "status_led.h"
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -58,7 +59,7 @@ static const char *MODE_NAMES[] = { "RUN", "COLLECT", "AUTO" };
 
 static void print_help(void)
 {
-    LOG_INFO(TAG_DISP, "Commands: BAT <mAh> <V> | MODE RUN/COLLECT/AUTO | WL 0-3 | FAN 0-100/AUTO | LIM <caut> <crit> | BASE");
+    LOG_INFO(TAG_DISP, "Commands: BAT <mAh> <V> | MODE RUN/COLLECT/AUTO | WL 0-3 | FAN 0-100/AUTO | LIM <caut> <crit> | BASE | LED r g b/AUTO");
 }
 
 void Cmd_Poll(void)
@@ -69,6 +70,7 @@ void Cmd_Poll(void)
     char *cmd = strtok_r(line, " \t", &save);
     char *a1 = strtok_r(NULL, " \t", &save);
     char *a2 = strtok_r(NULL, " \t", &save);
+    char *a3 = strtok_r(NULL, " \t", &save);
 
     if (cmd == NULL) {
         /* empty line */
@@ -101,6 +103,15 @@ void Cmd_Poll(void)
         if (a1 && a2) Predictor_SetLimits(strtof(a1, NULL), strtof(a2, NULL));
         LOG_INFO(TAG_ML, "Limits: caution +%.1f C, critical +%.1f C above baseline",
                  (double)Predictor_GetCautionRise(), (double)Predictor_GetCriticalRise());
+    } else if (strcmp(cmd, "LED") == 0) {
+        if (a1 && strcmp(a1, "AUTO") == 0) {
+            StatusLed_Hold(0);
+            LOG_INFO(TAG_DISP, "LED back to automatic");
+        } else if (a1 && a2 && a3) {
+            StatusLed_Hold(1);
+            StatusLed_Test((uint8_t)strtol(a1, NULL, 10), (uint8_t)strtol(a2, NULL, 10), (uint8_t)strtol(a3, NULL, 10));
+            LOG_INFO(TAG_DISP, "LED test R=%s G=%s B=%s (LED AUTO to release)", a1, a2, a3);
+        }
     } else if (strcmp(cmd, "BASE") == 0) {
         App_RecalibrateBaseline();
     } else {

@@ -11,6 +11,7 @@
  *    FAN <0..100> | FAN AUTO  manual fan test / back to automatic
  *    LIM <caution> <critical> rise limits in degC above baseline, e.g. LIM 5 8
  *    BASE                     re-measure the idle baseline temperature
+ *    LED <r> <g> <b> | LED AUTO  LED wiring test, 0..100 per colour
  */
 
 #ifndef UART_CMD_H
