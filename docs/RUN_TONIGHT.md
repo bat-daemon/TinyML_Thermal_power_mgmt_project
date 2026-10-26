@@ -30,7 +30,8 @@ Only the INA219 is required (the firmware halts at boot without it). The die tem
 | Part | Connections |
 |---|---|
 | INA219 (required) | VCC → 3V3, GND → GND, SDA → PB9 (D14), SCL → PB8 (D15). JP6 (IDD) jumper removed: Vin+ → JP6 regulator side, Vin− → JP6 MCU side |
-| RGB LED, common cathode | R → 470 Ω → PC7 (D9), G → 470 Ω → PB6 (D10), B → 470 Ω → PA7 (D11), cathode → GND |
+| RGB LED, common cathode | R → 470 Ω (yellow-violet-**brown**, not 470 kΩ) → PC7 (D9), G → 470 Ω → PB6 (D10), B → 470 Ω → PA7 (D11), cathode → GND |
+| Potentiometer (optional) | One end → 3V3, other end → GND, middle (wiper) → PA0 (A0). Type `WL POT` to use it |
 | LM35 ambient (optional) | +Vs → 5V, Vout → PA1 (A1), GND → GND, in open air |
 | Fan via L293D (optional) | See section 8 |
 | OLED | Not used by this firmware yet; leave unplugged |
@@ -55,6 +56,7 @@ If the debugger loses the board after flashing (the CPU sleeps a lot now), set D
 | `MODE COLLECT` | Log only, no reaction; set the workload yourself |
 | `MODE AUTO` | Log only, with a random workload schedule (for unattended data collection) |
 | `WL 0` … `WL 3` | Workload IDLE / LOW / MEDIUM / HIGH (the B1 button also cycles it) |
+| `WL POT` | Workload follows the pot dial (quarters = IDLE / LOW / MED / HIGH). `WL n` or B1 goes back to manual |
 | `BAT 2000 3.7` | Set the what-if battery (mAh, volts); `BAT` alone shows it |
 | `LIM 5 8` | Caution / critical limits in °C above baseline |
 | `BASE` | Re-measure the idle baseline (do this once the board settles in a new room) |

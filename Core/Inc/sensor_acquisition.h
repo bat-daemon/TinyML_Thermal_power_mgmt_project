@@ -45,6 +45,9 @@ float Sensor_ReadTempPrimary(void);
  * corrected for VDDA using the factory VREFINT/TS calibration values. */
 float Sensor_ReadTempDie(void);
 
+/* Reads the workload potentiometer wiper on PA0 (A0), 0-100 % of 3V3. */
+float Sensor_ReadPotPercent(void);
+
 /* Reads the ambient LM35 via ADC1 channel IN1 (PA1). */
 float Sensor_ReadTempAmbient(void);
 

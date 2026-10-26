@@ -68,4 +68,10 @@ void Workload_RunSlice(uint32_t slot_start_ms, uint32_t slot_len_ms, volatile ui
 void Workload_AutoEnable(uint8_t enable, uint32_t seed);
 void Workload_AutoStep(uint32_t now_ms);
 
+/* Potentiometer dial: when enabled, Workload_PotUpdate() maps the dial
+ * position (0-100 %) to IDLE/LOW/MEDIUM/HIGH with hysteresis. */
+void Workload_PotEnable(uint8_t enable);
+uint8_t Workload_PotIsEnabled(void);
+void Workload_PotUpdate(float pot_pct);
+
 #endif /* INC_WORKLOAD_GENERATOR_H_ */

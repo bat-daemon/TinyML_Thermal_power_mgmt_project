@@ -39,6 +39,9 @@ static uint8_t  auto_enabled = 0;
 static uint32_t auto_rng = 1u;
 static uint32_t auto_segment_end_ms = 0;
 
+/* Potentiometer dial */
+static uint8_t pot_enabled = POT_ON_AT_BOOT;
+
 void Workload_SetLevel(WorkloadLevel_t level)
 {
     if (level >= WORKLOAD_LEVEL_COUNT) {
@@ -175,4 +178,37 @@ void Workload_AutoStep(uint32_t now_ms)
     }
     Workload_SetLevel(level);
     auto_segment_end_ms = now_ms + seconds * 1000u;
+}
+
+void Workload_PotEnable(uint8_t enable)
+{
+    pot_enabled = enable;
+    LOG_INFO(TAG_WKLD, "Pot dial %s", enable ? "on (turn it to set the workload)" : "off");
+}
+
+uint8_t Workload_PotIsEnabled(void)
+{
+    return pot_enabled;
+}
+
+void Workload_PotUpdate(float pot_pct)
+{
+    if (!pot_enabled) {
+        return;
+    }
+    /* Boundaries at 25 / 50 / 75 %; the current level is kept until the
+     * dial moves POT_HYSTERESIS_PCT past a boundary. */
+    int cur = (int)current_level;
+    float lo = cur * 25.0f - POT_HYSTERESIS_PCT;
+    float hi = (cur + 1) * 25.0f + POT_HYSTERESIS_PCT;
+    if (pot_pct >= lo && pot_pct < hi) {
+        return;
+    }
+    int level = (int)(pot_pct / 25.0f);
+    if (level > (int)WORKLOAD_HIGH) {
+        level = (int)WORKLOAD_HIGH;
+    }
+    if (level != cur) {
+        Workload_SetLevel((WorkloadLevel_t)level);
+    }
 }

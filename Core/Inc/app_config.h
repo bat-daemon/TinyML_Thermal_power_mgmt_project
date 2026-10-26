@@ -60,6 +60,15 @@
 #define FAN_KICK_MS             400u   /* full power for this long when starting from 0 */
 
 /* ============================================================
+ * Potentiometer workload dial (optional)
+ *   Pot ends -> 3V3 and GND, wiper -> PA0 (Arduino A0)
+ *   "WL POT" turns it on; "WL 0-3" or the B1 button go back to manual.
+ *   The dial is split into the same 4 levels the model was trained on.
+ * ============================================================ */
+#define POT_ON_AT_BOOT          0      /* 1 = dial controls the workload from reset */
+#define POT_HYSTERESIS_PCT      4.0f   /* stops the level flickering at a boundary */
+
+/* ============================================================
  * RGB status LED
  * ============================================================ */
 #define LED_COMMON_ANODE        0      /* set to 1 if the RGB LED's common leg goes to 3V3 */

@@ -59,7 +59,7 @@ static const char *MODE_NAMES[] = { "RUN", "COLLECT", "AUTO" };
 
 static void print_help(void)
 {
-    LOG_INFO(TAG_DISP, "Commands: BAT <mAh> <V> | MODE RUN/COLLECT/AUTO | WL 0-3 | FAN 0-100/AUTO | LIM <caut> <crit> | BASE | LED r g b/AUTO");
+    LOG_INFO(TAG_DISP, "Commands: BAT <mAh> <V> | MODE RUN/COLLECT/AUTO | WL 0-3/POT | FAN 0-100/AUTO | LIM <caut> <crit> | BASE | LED r g b/AUTO");
 }
 
 void Cmd_Poll(void)
@@ -93,7 +93,12 @@ void Cmd_Poll(void)
     } else if (strcmp(cmd, "WL") == 0 && a1) {
         if (App_GetMode() == APP_MODE_AUTO) {
             LOG_WARN(TAG_DISP, "AUTO mode picks the workload; use MODE COLLECT first");
+        } else if (strcmp(a1, "POT") == 0) {
+            Workload_PotEnable(1);
         } else {
+            if (Workload_PotIsEnabled()) {
+                Workload_PotEnable(0);
+            }
             Workload_SetLevel((WorkloadLevel_t)strtol(a1, NULL, 10));
         }
     } else if (strcmp(cmd, "FAN") == 0 && a1) {

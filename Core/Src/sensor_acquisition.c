@@ -191,6 +191,15 @@ float Sensor_ReadTempPrimary(void)
     return adc_read_channel(ADC_CHANNEL_0); /* PA0 */
 }
 
+float Sensor_ReadPotPercent(void)
+{
+    float raw = adc_read_raw_avg(ADC_CHANNEL_0, ADC_SAMPLETIME_84CYCLES, 8u); /* PA0 */
+    if (raw < 0.0f) {
+        return 0.0f;
+    }
+    return raw * 100.0f / ADC_MAX_COUNTS;
+}
+
 float Sensor_ReadTempAmbient(void)
 {
     return adc_read_channel(ADC_CHANNEL_1); /* PA1 */

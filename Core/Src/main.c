@@ -317,6 +317,9 @@ int main(void)
         if (app_mode == APP_MODE_AUTO) {
             LOG_WARN(TAG_WKLD, "Button ignored in AUTO mode");
         } else {
+            if (Workload_PotIsEnabled()) {
+                Workload_PotEnable(0);
+            }
             Workload_CycleLevel();
         }
     }
@@ -325,6 +328,10 @@ int main(void)
         tick_flag = 0;
         slot_start_ms = HAL_GetTick();
         App_Tick();
+        /* The dial sets the level for the slot that starts now */
+        if (app_mode != APP_MODE_AUTO) {
+            Workload_PotUpdate(Sensor_ReadPotPercent());
+        }
     }
 
     if ((HAL_GetTick() - last_power_ms) >= POWER_SAMPLE_MS) {

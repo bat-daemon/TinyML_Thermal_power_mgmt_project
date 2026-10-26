@@ -8,6 +8,7 @@
  *    MODE RUN|COLLECT|AUTO    RUN = predict + react, COLLECT = log only,
  *                             AUTO = log only with a random workload schedule
  *    WL <0..3>                set workload IDLE/LOW/MEDIUM/HIGH
+ *    WL POT                   workload follows the pot dial on PA0 (A0)
  *    FAN <0..100> | FAN AUTO  manual fan test / back to automatic
  *    LIM <caution> <critical> rise limits in degC above baseline, e.g. LIM 5 8
  *    BASE                     re-measure the idle baseline temperature
