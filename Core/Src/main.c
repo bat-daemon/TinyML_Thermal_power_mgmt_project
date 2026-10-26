@@ -119,7 +119,8 @@ static void show_oled(uint8_t cal, const Prediction_t *pred, float rise, float t
         Oled_Printf(1, 0, "Rule: %s", Risk_Name(pred->rule_temp_risk));
     }
     Oled_Printf(2, 0, "Rise %+.1fC  T %.1fC", (double)rise, (double)t_die);
-    Oled_Printf(3, 0, "P %3.0fmW  Pwr:%s", (double)p_mw, short_risk(pred->power_risk));
+    Oled_Printf(3, 0, "P%3.0fmW ML:%s R:%s", (double)p_mw, short_risk(pred->power_risk),
+                short_risk(pred->rule_power_risk));
     Oled_Printf(4, 0, "WL %s>%s Fan %u%%", LEVEL_NAMES[wl_req], LEVEL_NAMES[wl_eff], (unsigned)Fan_GetPercent());
     Oled_Printf(5, 0, "Bat %.1f%% %.1fh", (double)Battery_GetPercent(), (double)Battery_GetHoursLeft());
     Oled_Printf(6, 0, "RAM %.1fK stack %luB", (double)((uint32_t)(&_ebss - &_sdata)) / 1024.0,
@@ -254,11 +255,12 @@ static void App_Tick(void)
     };
     Log_Data(&rec);
 
-    LOG_INFO(TAG_DISP, "T=%.1fC Ta=%.1fC rise=%+.1fC slope=%+.2fC/s P=%.0fmW WL=%s/%s TEMP(%s):%s TEMP(rule):%s PWR:%s fan=%u%% bat=%.1f%% %.1fh",
+    LOG_INFO(TAG_DISP, "T=%.1fC Ta=%.1fC rise=%+.1fC slope=%+.2fC/s P=%.0fmW WL=%s/%s TEMP(%s):%s TEMP(rule):%s PWR(%s):%s PWR(rule):%s fan=%u%% bat=%.1f%% %.1fh",
              (double)r.temp_die_c, (double)r.temp_ambient_c, (double)rise, (double)feat[FEAT_TEMP_SLOPE10], (double)r.power_mw,
              LEVEL_NAMES[wl_req], LEVEL_NAMES[Workload_GetEffectiveLevel()],
              pred.model_used ? "ML" : "RULE", Risk_Name(pred.temp_risk), Risk_Name(pred.rule_temp_risk),
-             Risk_Name(pred.power_risk), (unsigned)Fan_GetPercent(),
+             pred.model_used ? "ML" : "RULE", Risk_Name(pred.power_risk), Risk_Name(pred.rule_power_risk),
+             (unsigned)Fan_GetPercent(),
              (double)Battery_GetPercent(), (double)Battery_GetHoursLeft());
     if (pred.engine_xcubeai) {
         LOG_INFO(TAG_SYS, "CPU=%luMHz stack=%luB heap=%luB inference: X-CUBE-AI %luus, plain C %luus, differ %lu pot=%.0f%%(%s)",
