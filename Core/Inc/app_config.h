@@ -77,7 +77,7 @@
  *       every tick, so both inference times and any disagreement are logged.
  * ============================================================ */
 #ifndef INFERENCE_ENGINE_XCUBEAI
-#define INFERENCE_ENGINE_XCUBEAI  0
+#define INFERENCE_ENGINE_XCUBEAI  1
 #endif
 
 /* ============================================================
