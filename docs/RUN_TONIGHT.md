@@ -23,7 +23,19 @@ Everything runs on the Nucleo-F446RE alone. The fan is optional and can be wired
 | `scripts/capture_data.py` | New 17-field schema, plus `--send` to send a command at start. |
 | `scripts/train_model.py` | Labels data, trains the model, compares it with the rule, and writes `model_weights.h` plus a report. |
 
-## 1. Build and flash
+## 1. Wiring
+
+Only the INA219 is required (the firmware halts at boot without it). The die temperature sensor is inside the MCU.
+
+| Part | Connections |
+|---|---|
+| INA219 (required) | VCC → 3V3, GND → GND, SDA → PB9 (D14), SCL → PB8 (D15). JP6 (IDD) jumper removed: Vin+ → JP6 regulator side, Vin− → JP6 MCU side |
+| RGB LED, common cathode | R → 470 Ω → PC7 (D9), G → 470 Ω → PB6 (D10), B → 470 Ω → PA7 (D11), cathode → GND |
+| LM35 ambient (optional) | +Vs → 5V, Vout → PA1 (A1), GND → GND, in open air |
+| Fan via L293D (optional) | See section 8 |
+| OLED | Not used by this firmware yet; leave unplugged |
+
+## 2. Build and flash
 
 1. Copy the files over your CubeIDE project (same folder layout). New `.c` files in `Core/Src` are picked up automatically.
 2. Make sure float printf is on: Project → Properties → C/C++ Build → Settings → MCU Settings → tick **Use float with printf**.
@@ -34,7 +46,7 @@ Everything runs on the Nucleo-F446RE alone. The fan is optional and can be wired
 
 If the debugger loses the board after flashing (the CPU sleeps a lot now), set Debug Configuration → Debugger → Reset behaviour = **Connect under reset**.
 
-## 2. Commands (type in the terminal, then Enter)
+## 3. Commands (type in the terminal, then Enter)
 
 | Command | Effect |
 |---|---|
@@ -48,15 +60,15 @@ If the debugger loses the board after flashing (the CPU sleeps a lot now), set D
 | `BASE` | Re-measure the idle baseline (do this once the board settles in a new room) |
 | `FAN 100` / `FAN AUTO` | Manual fan test / back to automatic |
 
-## 3. Heat test (about 15 min, do this first)
+## 4. Heat test (about 15 min, do this first)
 
 1. `MODE COLLECT`, then `WL 0` and wait 3 min.
 2. `WL 3` and wait 8 min. Watch `rise=`.
 3. `WL 0` for 5 min to watch it cool.
 
-Note the highest `rise` value and the power at IDLE vs HIGH. Around 4 °C of rise or more is fine. Under 3 °C, train with lower limits (step 5) or cover the board loosely.
+Note the highest `rise` value and the power at IDLE vs HIGH. Around 4 °C of rise or more is fine. Under 3 °C, train with lower limits (step 6) or cover the board loosely.
 
-## 4. Collect data (leave it running)
+## 5. Collect data (leave it running)
 
 Close the terminal first (only one program can hold the port). Then:
 
@@ -66,7 +78,7 @@ python scripts/capture_data.py --port COM5 --samples 10800 --output data/auto1.c
 
 10800 samples = 3 hours, and 2 hours is the useful minimum. Keep the laptop awake and plugged in. Replace `COM5` with your port (`/dev/ttyACM0` on Linux).
 
-## 5. Train
+## 6. Train
 
 ```
 python -m pip install tensorflow pandas numpy matplotlib
@@ -82,7 +94,7 @@ python scripts/train_model.py --data data/*.csv --caution-rise 3 --critical-rise
 
 Google Colab works too: upload the CSVs and the script, run it, and download `model_weights.h`.
 
-## 6. Rebuild with the model and demo
+## 7. Rebuild with the model and demo
 
 Rebuild and flash. The readable line now shows `ML:` and an inference time in µs. The board starts in `MODE RUN`.
 
@@ -94,7 +106,7 @@ Demo script (about 3 min):
 
 Before reviewers arrive: let it settle at idle, type `BASE`, and optionally run HIGH for a couple of minutes so things happen sooner.
 
-## 7. Fan wiring (L293D chip, channel 1)
+## 8. Fan wiring (L293D chip, channel 1)
 
 | L293D pin | Connect to |
 |---|---|
