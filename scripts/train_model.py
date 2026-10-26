@@ -51,7 +51,9 @@ def parse_args():
     p.add_argument("--include-run", action="store_true",
                    help="also use rows recorded in MODE RUN (reaction active; normally excluded)")
     p.add_argument("--epochs", type=int, default=120)
-    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--seed", type=int, default=42, help="first seed")
+    p.add_argument("--seeds", type=int, default=5,
+                   help="train this many seeds and keep the one with the lowest validation loss (default 5)")
     p.add_argument("--header", type=Path, default=REPO_ROOT / "Core" / "Inc" / "model_weights.h")
     p.add_argument("--out-dir", type=Path, default=REPO_ROOT / "model_out")
     return p.parse_args()
@@ -285,11 +287,20 @@ def main():
     std[std < 1e-6] = 1.0
 
     import tensorflow as tf
-    model = build_model(Xtr.shape[1], args.seed)
-    hist = model.fit((Xtr - mean) / std, [ytr_t, ytr_p],
-              sample_weight=[class_weights(ytr_t), class_weights(ytr_p)],
-              validation_split=0.15, epochs=args.epochs, batch_size=64, verbose=0,
-              callbacks=[tf.keras.callbacks.EarlyStopping(patience=15, restore_best_weights=True)])
+    # Several seeds; the one with the lowest validation loss is kept. The
+    # choice uses only the validation part of the training data, never the test set.
+    model, hist, best_val, best_seed = None, None, float("inf"), None
+    for sd in range(args.seed, args.seed + args.seeds):
+        m = build_model(Xtr.shape[1], sd)
+        hst = m.fit((Xtr - mean) / std, [ytr_t, ytr_p],
+                    sample_weight=[class_weights(ytr_t), class_weights(ytr_p)],
+                    validation_split=0.15, epochs=args.epochs, batch_size=64, verbose=0,
+                    callbacks=[tf.keras.callbacks.EarlyStopping(patience=15, restore_best_weights=True)])
+        val = min(hst.history["val_loss"])
+        print(f"seed {sd}: best validation loss {val:.4f} after {len(hst.history['val_loss'])} epochs")
+        if val < best_val:
+            model, hist, best_val, best_seed = m, hst, val, sd
+    print(f"Keeping seed {best_seed} (lowest validation loss {best_val:.4f})")
 
     pt, pp = model.predict((Xte - mean) / std, verbose=0)
     ml_t, ml_p = pt.argmax(1), pp.argmax(1)
@@ -321,7 +332,7 @@ def main():
         {k: [float(v) for v in vals] for k, vals in hist.history.items()}))
     (args.out_dir / "metrics.json").write_text(json.dumps(
         {"thresholds": thr, "results": res, "lead_ml": lead_ml, "lead_rule": lead_rule,
-         "params": int(model.count_params()), "train_rows": int(len(Xtr)), "test_rows": int(len(Xte))},
+         "params": int(model.count_params()), "seed": best_seed, "train_rows": int(len(Xtr)), "test_rows": int(len(Xte))},
         default=float, indent=1))
 
     # ---------- report
@@ -340,7 +351,7 @@ Horizon H = {h} s, window = {FEATURE_WINDOW} s, features = {", ".join(FEATURE_NA
 Thresholds: caution +{thr['caution_rise']} C / critical +{thr['critical_rise']} C above idle baseline;
 power caution {thr['caution_power']} mW / critical {thr['critical_power']} mW.
 Train rows {len(Xtr)}, test rows {len(Xte)} (last 25 % of every recording segment).
-Model: {n_params} parameters (~{n_params * 4 / 1024:.1f} KB of float weights).
+Model: {n_params} parameters (~{n_params * 4 / 1024:.1f} KB of float weights); seed {best_seed} kept out of {args.seeds} by lowest validation loss.
 
 ## Temperature risk (test set)
 
