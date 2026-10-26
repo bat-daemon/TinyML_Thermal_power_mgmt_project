@@ -26,6 +26,9 @@ volatile uint8_t cmd_line_ready = 0;
 void Cmd_Init(UART_HandleTypeDef *huart)
 {
     cmd_huart = huart;
+    /* The .ioc leaves the USART2 interrupt off, so enable it here */
+    HAL_NVIC_SetPriority(USART2_IRQn, 2, 0);
+    HAL_NVIC_EnableIRQ(USART2_IRQn);
     HAL_UART_Receive_IT(cmd_huart, &rx_byte, 1);
 }
 
