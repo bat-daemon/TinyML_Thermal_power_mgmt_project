@@ -38,6 +38,7 @@
 #include "fan.h"
 #include "status_led.h"
 #include "uart_cmd.h"
+#include "oled.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -87,11 +88,47 @@ static uint32_t slot_start_ms = 0;
 static uint32_t last_tick_ms = 0;
 
 static const char *LEVEL_NAMES[] = { "IDLE", "LOW", "MED", "HIGH" };
+
+/* Static RAM (.data + .bss) from the linker script, shown on the OLED */
+extern uint8_t _sdata, _ebss;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
+static const char *short_risk(RiskLevel_t r)
+{
+    static const char *n[] = { "NORM", "CAUT", "CRIT" };
+    return (r <= RISK_CRITICAL) ? n[r] : "?";
+}
+
+/* One screen, refreshed every second; sent page by page from the main loop */
+static void show_oled(uint8_t cal, const Prediction_t *pred, float rise, float t_die, float p_mw,
+                      uint8_t wl_req, uint8_t wl_eff, const DataRecord_t *rec)
+{
+    static const char *MODE_SHORT[] = { "RUN", "COLLECT", "AUTO" };
+    if (!Oled_IsEnabled()) return;
+
+    if (cal) {
+        Oled_Printf(0, 1, " Measuring baseline");
+        Oled_Printf(1, 0, " keep the board idle");
+    } else {
+        uint8_t alert = Reaction_SafetyActive() || pred->temp_risk == RISK_CRITICAL;
+        Oled_Printf(0, alert, "%-4s: %-8s %2lus", pred->model_used ? "ML" : "RULE",
+                    Risk_Name(pred->temp_risk), (unsigned long)Predictor_GetHorizonS());
+        Oled_Printf(1, 0, "Rule: %s", Risk_Name(pred->rule_temp_risk));
+    }
+    Oled_Printf(2, 0, "Rise %+.1fC  T %.1fC", (double)rise, (double)t_die);
+    Oled_Printf(3, 0, "P %3.0fmW  Pwr:%s", (double)p_mw, short_risk(pred->power_risk));
+    Oled_Printf(4, 0, "WL %s>%s Fan %u%%", LEVEL_NAMES[wl_req], LEVEL_NAMES[wl_eff], (unsigned)Fan_GetPercent());
+    Oled_Printf(5, 0, "Bat %.1f%% %.1fh", (double)Battery_GetPercent(), (double)Battery_GetHoursLeft());
+    Oled_Printf(6, 0, "RAM %.1fK stack %luB", (double)((uint32_t)(&_ebss - &_sdata)) / 1024.0,
+                (unsigned long)rec->stack_used_bytes);
+    Oled_Printf(7, 0, "%s %s %luus%s", MODE_SHORT[rec->mode], pred->engine_xcubeai ? "XAI" : "C",
+                (unsigned long)pred->inference_us, Reaction_SafetyActive() ? " SAFE" : "");
+    Oled_Flush();
+}
+
 static void App_Tick(void);
 /* USER CODE END PFP */
 
@@ -235,6 +272,8 @@ static void App_Tick(void)
                  (unsigned long)rec.heap_used_bytes, (unsigned long)pred.inference_us,
                  (double)pot_pct, Workload_PotIsEnabled() ? "ON" : "off, type WL POT");
     }
+
+    show_oled(calibrating, &pred, rise, r.temp_die_c, r.power_mw, wl_req, Workload_GetEffectiveLevel(), &rec);
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
@@ -300,6 +339,7 @@ int main(void)
       LOG_ERROR(TAG_SENS, "Sensor init failed — halting");
       Error_Handler();
   }
+  Oled_Init();
   StatusLed_Init();
   Fan_Init();
   Battery_Init();
@@ -321,6 +361,7 @@ int main(void)
 
     Cmd_Poll();
     Fan_Service();
+    Oled_Service();
 
     if (button_flag) {
         button_flag = 0;

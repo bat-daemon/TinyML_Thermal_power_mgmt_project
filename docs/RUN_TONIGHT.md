@@ -34,7 +34,7 @@ Only the INA219 is required (the firmware halts at boot without it). The die tem
 | Potentiometer (optional) | One end → 3V3, other end → GND, middle (wiper) → PA0 (A0). Type `WL POT` to use it |
 | LM35 ambient (optional) | +Vs → 5V, Vout → PA1 (A1), GND → GND, in open air |
 | Fan via L293D (optional) | See section 8 |
-| OLED | Not used by this firmware yet; leave unplugged |
+| OLED SSD1306 128x64 (optional) | VCC → 3V3, GND → GND, SCL → PB8 (D15), SDA → PB9 (D14), same pins as the INA219. Detected at boot; `OLED 0` / `OLED 1` turns it off / on |
 
 ## 2. Build and flash
 

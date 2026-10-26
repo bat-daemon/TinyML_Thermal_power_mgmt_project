@@ -60,6 +60,15 @@
 #define FAN_KICK_MS             400u   /* full power for this long when starting from 0 */
 
 /* ============================================================
+ * OLED (SSD1306 128x64, I2C1 shared with the INA219)
+ *   VCC -> 3V3, GND -> GND, SCL -> PB8 (D15), SDA -> PB9 (D14)
+ * Detected at boot; the firmware runs the same without it.
+ * Set OLED_ENABLED to 0 to compile the display out entirely.
+ * ============================================================ */
+#define OLED_ENABLED            1
+#define OLED_I2C_ADDR           0x3Cu  /* some modules are 0x3D */
+
+/* ============================================================
  * Inference engine
  *   0 = plain C exported by train_model.py (model_weights.h)
  *   1 = X-CUBE-AI runtime (needs the X-CUBE-AI pack enabled in the .ioc

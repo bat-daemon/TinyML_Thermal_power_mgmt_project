@@ -10,6 +10,7 @@
 #include "predictor.h"
 #include "workload_generator.h"
 #include "status_led.h"
+#include "oled.h"
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -62,7 +63,7 @@ static const char *MODE_NAMES[] = { "RUN", "COLLECT", "AUTO" };
 
 static void print_help(void)
 {
-    LOG_INFO(TAG_DISP, "Commands: BAT <mAh> <V> | MODE RUN/COLLECT/AUTO | WL 0-3/POT | FAN 0-100/AUTO | LIM <caut> <crit> | BASE | LED r g b/AUTO");
+    LOG_INFO(TAG_DISP, "Commands: BAT <mAh> <V> | MODE RUN/COLLECT/AUTO | WL 0-3/POT | FAN 0-100/AUTO | LIM <caut> <crit> | BASE | LED r g b/AUTO | OLED 0/1");
 }
 
 void Cmd_Poll(void)
@@ -122,6 +123,13 @@ void Cmd_Poll(void)
         }
     } else if (strcmp(cmd, "BASE") == 0) {
         App_RecalibrateBaseline();
+    } else if (strcmp(cmd, "OLED") == 0) {
+        if (!Oled_Present()) {
+            LOG_WARN(TAG_DISP, "No OLED was found at boot");
+        } else {
+            if (a1) Oled_Enable((uint8_t)strtol(a1, NULL, 10));
+            LOG_INFO(TAG_DISP, "OLED %s", Oled_IsEnabled() ? "on" : "off");
+        }
     } else {
         LOG_WARN(TAG_DISP, "Unknown command '%s'", cmd);
         print_help();
