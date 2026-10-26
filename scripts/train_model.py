@@ -286,7 +286,7 @@ def main():
 
     import tensorflow as tf
     model = build_model(Xtr.shape[1], args.seed)
-    model.fit((Xtr - mean) / std, [ytr_t, ytr_p],
+    hist = model.fit((Xtr - mean) / std, [ytr_t, ytr_p],
               sample_weight=[class_weights(ytr_t), class_weights(ytr_p)],
               validation_split=0.15, epochs=args.epochs, batch_size=64, verbose=0,
               callbacks=[tf.keras.callbacks.EarlyStopping(patience=15, restore_best_weights=True)])
@@ -316,6 +316,13 @@ def main():
     except Exception as exc:  # TFLite is only for the optional X-CUBE-AI route
         print(f"(tflite export skipped: {exc})")
     np.savez(args.out_dir / "test_vectors.npz", X=Xte[:200], ml_t=ml_t[:200], ml_p=ml_p[:200])
+    # training curves and metrics, for the notebook / report
+    (args.out_dir / "history.json").write_text(json.dumps(
+        {k: [float(v) for v in vals] for k, vals in hist.history.items()}))
+    (args.out_dir / "metrics.json").write_text(json.dumps(
+        {"thresholds": thr, "results": res, "lead_ml": lead_ml, "lead_rule": lead_rule,
+         "params": int(model.count_params()), "train_rows": int(len(Xtr)), "test_rows": int(len(Xte))},
+        default=float, indent=1))
 
     # ---------- report
     def row(name, m):
