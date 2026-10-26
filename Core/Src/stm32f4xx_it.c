@@ -57,6 +57,7 @@
 /* External variables --------------------------------------------------------*/
 extern TIM_HandleTypeDef htim2;
 /* USER CODE BEGIN EV */
+extern UART_HandleTypeDef huart2;
 
 /* USER CODE END EV */
 
@@ -227,5 +228,12 @@ void EXTI15_10_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
+/* USART2 interrupt for the serial commands (uart_cmd.c). Added by hand
+ * because the .ioc has the USART2 global interrupt off. If you enable it
+ * in CubeMX later, delete this function (CubeMX will generate its own). */
+void USART2_IRQHandler(void)
+{
+  HAL_UART_IRQHandler(&huart2);
+}
 
 /* USER CODE END 1 */

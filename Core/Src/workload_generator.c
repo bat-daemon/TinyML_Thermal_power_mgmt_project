@@ -3,38 +3,44 @@
  *
  *  Created on: Sep 20, 2026
  *      Author: swaro
+ *
+ *  Reworked for the closed loop: each level is now a duty cycle of the
+ *  1 s sample slot instead of a fixed iteration count, so the power levels
+ *  are repeatable without calibration. IDLE spends the whole slot in
+ *  __WFI() sleep (done by the caller), which is what makes IDLE and HIGH
+ *  clearly different in power.
  */
-#include "workload_generator.h"
-#include "logging.h"
 
-/* ============================================================
- * Iteration counts per level.
- *
- * These are placeholder values — you WILL need to recalibrate them once
- * you can actually observe real timing/thermal behavior on hardware. The
- * goal is for HIGH to produce a clearly different power/thermal signature
- * than IDLE within one sample-tick period (~1s per the TIM2 config), not
- * to hit any specific millisecond target. Adjust by trial and observation
- * during your exploratory data collection run (see ML_PIPELINE.md).
- *
- * Built at -O0 (per your current CubeIDE Debug config) so these loops
- * won't get optimized away even without the volatile counter below — but
- * the volatile is kept anyway as a safeguard against future optimization
- * level changes (e.g. switching to a Release/-O2 build).
- * ============================================================ */
-static const uint32_t WORKLOAD_ITERATIONS[WORKLOAD_LEVEL_COUNT] = {
-    [WORKLOAD_IDLE]   = 0,
-    [WORKLOAD_LOW]    = 50000,
-    [WORKLOAD_MEDIUM] = 200000,
-    [WORKLOAD_HIGH]   = 800000,
+#include "workload_generator.h"
+#include "app_config.h"
+#include "logging.h"
+#include "main.h"
+#include <string.h>
+
+static const uint32_t WORKLOAD_DUTY[WORKLOAD_LEVEL_COUNT] = {
+    [WORKLOAD_IDLE]   = WORKLOAD_DUTY_IDLE,
+    [WORKLOAD_LOW]    = WORKLOAD_DUTY_LOW,
+    [WORKLOAD_MEDIUM] = WORKLOAD_DUTY_MEDIUM,
+    [WORKLOAD_HIGH]   = WORKLOAD_DUTY_HIGH,
 };
 
 static volatile WorkloadLevel_t current_level = WORKLOAD_IDLE;
+static volatile WorkloadLevel_t cap_level = WORKLOAD_HIGH;
 
-/* Prevents the compiler from eliminating the "pointless" loop below even
- * under higher optimization levels — the loop's result is never used for
- * anything except consuming CPU cycles/power, which is the entire point. */
-static volatile uint32_t workload_sink = 0;
+/* Working set for the busy loop: FPU math plus memory traffic, so the
+ * core, FPU, flash accelerator and SRAM bus are all switching. */
+#define WORK_BUF_WORDS 1024u
+static uint32_t work_src[WORK_BUF_WORDS];
+static uint32_t work_dst[WORK_BUF_WORDS];
+static volatile float workload_sink_f = 0.0f;
+
+/* AUTO schedule state */
+static uint8_t  auto_enabled = 0;
+static uint32_t auto_rng = 1u;
+static uint32_t auto_segment_end_ms = 0;
+
+/* Potentiometer dial */
+static uint8_t pot_enabled = POT_ON_AT_BOOT;
 
 void Workload_SetLevel(WorkloadLevel_t level)
 {
@@ -42,9 +48,9 @@ void Workload_SetLevel(WorkloadLevel_t level)
         LOG_WARN(TAG_WKLD, "Requested workload level %d out of range, clamping to HIGH", (int)level);
         level = WORKLOAD_HIGH;
     }
-
+    static const char *names[] = { "IDLE", "LOW", "MED", "HIGH" };
     current_level = level;
-    LOG_INFO(TAG_WKLD, "Workload level set to %d", (int)current_level);
+    LOG_INFO(TAG_WKLD, "Requested workload = %s", names[current_level]);
 }
 
 WorkloadLevel_t Workload_GetLevel(void)
@@ -58,16 +64,151 @@ void Workload_CycleLevel(void)
     Workload_SetLevel(next);
 }
 
-void Workload_RunBusyLoop(void)
+void Workload_SetCap(WorkloadLevel_t cap)
 {
-    uint32_t iterations = WORKLOAD_ITERATIONS[current_level];
+    if (cap >= WORKLOAD_LEVEL_COUNT) {
+        cap = WORKLOAD_HIGH;
+    }
+    static const char *names[] = { "IDLE", "LOW", "MED", "HIGH" };
+    if (cap != cap_level) {
+        LOG_INFO(TAG_REACT, "Reaction limit: max allowed workload = %s", names[cap]);
+    }
+    cap_level = cap;
+}
 
-    for (uint32_t i = 0; i < iterations; i++) {
-        /* Deliberately pointless arithmetic — only exists to burn CPU
-         * cycles (and therefore power/heat) proportional to `iterations`.
-         * Written to `workload_sink` (volatile) so it can't be optimized out. */
-        workload_sink = workload_sink + (i ^ 0xA5A5A5A5u);
+WorkloadLevel_t Workload_GetCap(void)
+{
+    return cap_level;
+}
+
+WorkloadLevel_t Workload_GetEffectiveLevel(void)
+{
+    return (current_level < cap_level) ? current_level : cap_level;
+}
+
+uint32_t Workload_GetDutyPercent(void)
+{
+    return WORKLOAD_DUTY[Workload_GetEffectiveLevel()];
+}
+
+/* One short chunk of work (~tens of microseconds) */
+static void busy_chunk(void)
+{
+    float acc = workload_sink_f;
+    for (uint32_t i = 0; i < 64u; i++) {
+        acc = acc * 1.000001f + 0.5f / ((float)i + 1.0f);
+    }
+    memcpy(work_dst, work_src, sizeof(work_src));
+    work_src[(uint32_t)acc & (WORK_BUF_WORDS - 1u)] ^= 0xA5A5A5A5u;
+    workload_sink_f = acc;
+}
+
+void Workload_RunSlice(uint32_t slot_start_ms, uint32_t slot_len_ms, volatile uint8_t *abort_flag)
+{
+    uint32_t busy_ms = slot_len_ms * Workload_GetDutyPercent() / 100u;
+    uint32_t call_start = HAL_GetTick();
+    while ((HAL_GetTick() - slot_start_ms) < busy_ms) {
+        if (abort_flag != NULL && *abort_flag) {
+            return;
+        }
+        if ((HAL_GetTick() - call_start) >= WORKLOAD_SLICE_MAX_MS) {
+            return;   /* let the main loop sample power and poll commands */
+        }
+        busy_chunk();
     }
 }
 
+void Workload_RunBusyLoop(void)
+{
+    /* Kept for compatibility with older call sites: one full-slot slice. */
+    Workload_RunSlice(HAL_GetTick(), SAMPLE_PERIOD_MS, NULL);
+}
 
+/* ============================================================
+ * AUTO schedule
+ * ============================================================ */
+static uint32_t rng_next(void)
+{
+    /* xorshift32 */
+    auto_rng ^= auto_rng << 13;
+    auto_rng ^= auto_rng >> 17;
+    auto_rng ^= auto_rng << 5;
+    return auto_rng;
+}
+
+static uint32_t rng_range(uint32_t lo, uint32_t hi)
+{
+    return lo + (rng_next() % (hi - lo + 1u));
+}
+
+void Workload_AutoEnable(uint8_t enable, uint32_t seed)
+{
+    auto_enabled = enable;
+    auto_rng = (seed != 0u) ? seed : 0x1234567u;
+    auto_segment_end_ms = 0;
+    LOG_INFO(TAG_WKLD, "AUTO schedule %s", enable ? "on" : "off");
+}
+
+void Workload_AutoStep(uint32_t now_ms)
+{
+    if (!auto_enabled || (int32_t)(now_ms - auto_segment_end_ms) < 0) {
+        return;
+    }
+
+    /* Mix of segment types so the dataset holds every pattern the model
+     * must recognise: long heat-ups, cool-downs, short bursts, mid holds. */
+    uint32_t r = rng_range(0, 99);
+    WorkloadLevel_t level;
+    uint32_t seconds;
+    if (r < 30) {            /* long heat-up */
+        level = WORKLOAD_HIGH;
+        seconds = rng_range(60, 180);
+    } else if (r < 55) {     /* cool-down */
+        level = WORKLOAD_IDLE;
+        seconds = rng_range(60, 150);
+    } else if (r < 70) {     /* short burst: should NOT become Critical */
+        level = WORKLOAD_HIGH;
+        seconds = rng_range(4, 12);
+    } else if (r < 85) {
+        level = WORKLOAD_MEDIUM;
+        seconds = rng_range(30, 120);
+    } else {
+        level = WORKLOAD_LOW;
+        seconds = rng_range(20, 90);
+    }
+    Workload_SetLevel(level);
+    auto_segment_end_ms = now_ms + seconds * 1000u;
+}
+
+void Workload_PotEnable(uint8_t enable)
+{
+    pot_enabled = enable;
+    LOG_INFO(TAG_WKLD, "Pot dial %s", enable ? "on (turn it to set the workload)" : "off");
+}
+
+uint8_t Workload_PotIsEnabled(void)
+{
+    return pot_enabled;
+}
+
+void Workload_PotUpdate(float pot_pct)
+{
+    if (!pot_enabled) {
+        return;
+    }
+    /* Boundaries at 25 / 50 / 75 %; the current level is kept until the
+     * dial moves POT_HYSTERESIS_PCT past a boundary. */
+    int cur = (int)current_level;
+    float lo = cur * 25.0f - POT_HYSTERESIS_PCT;
+    float hi = (cur + 1) * 25.0f + POT_HYSTERESIS_PCT;
+    if (pot_pct >= lo && pot_pct < hi) {
+        return;
+    }
+    int level = (int)(pot_pct / 25.0f);
+    if (level > (int)WORKLOAD_HIGH) {
+        level = (int)WORKLOAD_HIGH;
+    }
+    if (level != cur) {
+        Workload_SetLevel((WorkloadLevel_t)level);
+    }
+}

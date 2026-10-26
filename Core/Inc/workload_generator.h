@@ -43,11 +43,35 @@ WorkloadLevel_t Workload_GetLevel(void);
  * called from the B1 button's EXTI callback for manual demo control. */
 void Workload_CycleLevel(void);
 
-/* Runs one burst of the busy-loop at the current intensity. Call this once
- * per superloop tick (i.e. once per TIM2 sample-tick interrupt), NOT in a
- * free-running fashion — it's a bounded, single burst per call so it
- * doesn't starve the rest of the pipeline (sensor reads, logging, etc.)
- * within a given tick period. */
-void Workload_RunBusyLoop(void);
+/* Caps the level actually run (Stage 1 reaction). The requested level is
+ * kept, so when the cap is lifted the workload returns to what was asked. */
+void Workload_SetCap(WorkloadLevel_t cap);
+WorkloadLevel_t Workload_GetCap(void);
+
+/* min(requested level, cap) — what actually runs and what the model sees. */
+WorkloadLevel_t Workload_GetEffectiveLevel(void);
+
+/* Duty cycle of the effective level, in percent of each sample slot. */
+uint32_t Workload_GetDutyPercent(void);
+
+/* Burns CPU for the busy part of the current sample slot, returning at least
+ * every WORKLOAD_SLICE_MAX_MS so the caller can sample power; call it again
+ * until the busy part is over.
+ * slot_start_ms is HAL_GetTick() at the start of the slot. Returns early
+ * if *abort_flag becomes non-zero (e.g. the next sample tick or a UART
+ * command arrived). The caller sleeps (__WFI) for the rest of the slot. */
+void Workload_RunSlice(uint32_t slot_start_ms, uint32_t slot_len_ms, volatile uint8_t *abort_flag);
+
+/* AUTO data-collection schedule: when enabled, Workload_AutoStep() picks
+ * random levels for random durations (ramps, bursts, long holds, cooldowns)
+ * so a dataset can be recorded unattended. Call once per sample tick. */
+void Workload_AutoEnable(uint8_t enable, uint32_t seed);
+void Workload_AutoStep(uint32_t now_ms);
+
+/* Potentiometer dial: when enabled, Workload_PotUpdate() maps the dial
+ * position (0-100 %) to IDLE/LOW/MEDIUM/HIGH with hysteresis. */
+void Workload_PotEnable(uint8_t enable);
+uint8_t Workload_PotIsEnabled(void);
+void Workload_PotUpdate(float pot_pct);
 
 #endif /* INC_WORKLOAD_GENERATOR_H_ */

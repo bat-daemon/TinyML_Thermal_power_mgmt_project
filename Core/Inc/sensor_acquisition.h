@@ -21,8 +21,8 @@ typedef struct {
     float power_mw;
     float voltage_v;
     float current_ma;
-    float temp_primary_c;   /* LM35 taped to chip package — the trend being predicted */
-    float temp_ambient_c;   /* LM35 in open air — logged only, not fed to model */
+    float temp_die_c;       /* STM32 internal die sensor (factory calibrated) — the trend being predicted */
+    float temp_ambient_c;   /* LM35 in open air on PA1 — logged only, not fed to model */
 } SensorReading_t;
 
 /* ============================================================
@@ -37,8 +37,16 @@ bool Sensor_Init(void);
  * the same set of INA219 registers, so one I2C transaction sequence covers them). */
 bool Sensor_ReadPower(float *voltage_v, float *current_ma, float *power_mw);
 
-/* Reads the primary (chip-taped) LM35 via ADC1 channel IN0 (PA0). */
+/* Reads the primary (chip-taped) LM35 via ADC1 channel IN0 (PA0).
+ * No longer used by the pipeline: the internal die sensor replaced it. */
 float Sensor_ReadTempPrimary(void);
+
+/* Reads the STM32F446 internal die temperature sensor, oversampled and
+ * corrected for VDDA using the factory VREFINT/TS calibration values. */
+float Sensor_ReadTempDie(void);
+
+/* Reads the workload potentiometer wiper on PA0 (A0), 0-100 % of 3V3. */
+float Sensor_ReadPotPercent(void);
 
 /* Reads the ambient LM35 via ADC1 channel IN1 (PA1). */
 float Sensor_ReadTempAmbient(void);
