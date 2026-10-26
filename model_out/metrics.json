@@ -1,0 +1,134 @@
+{
+ "thresholds": {
+  "caution_rise": 5.5,
+  "critical_rise": 8.9,
+  "caution_power": 160.1,
+  "critical_power": 210.3
+ },
+ "results": {
+  "temp": {
+   "ml": {
+    "accuracy": 0.955456570155902,
+    "macro_f1": 0.9394470240687225,
+    "false_alarm_rate": 0.015625,
+    "critical_recall": 0.9843400447427293,
+    "critical_missed_as_normal": 0.0014914243102162564,
+    "confusion": [
+     [
+      819,
+      13,
+      0
+     ],
+     [
+      65,
+      435,
+      21
+     ],
+     [
+      2,
+      19,
+      1320
+     ]
+    ]
+   },
+   "rule": {
+    "accuracy": 0.9242761692650334,
+    "macro_f1": 0.8954414425698648,
+    "false_alarm_rate": 0.006009615384615385,
+    "critical_recall": 0.9753914988814317,
+    "critical_missed_as_normal": 0.0022371364653243847,
+    "confusion": [
+     [
+      827,
+      5,
+      0
+     ],
+     [
+      75,
+      355,
+      91
+     ],
+     [
+      3,
+      30,
+      1308
+     ]
+    ]
+   }
+  },
+  "power": {
+   "ml": {
+    "accuracy": 0.9339272457312546,
+    "macro_f1": 0.8954209709028581,
+    "false_alarm_rate": 0.05865102639296188,
+    "critical_recall": 0.9842578710644677,
+    "critical_missed_as_normal": 0.0074962518740629685,
+    "confusion": [
+     [
+      963,
+      26,
+      34
+     ],
+     [
+      45,
+      240,
+      52
+     ],
+     [
+      10,
+      11,
+      1313
+     ]
+    ]
+   },
+   "rule": {
+    "accuracy": 0.8771343726800297,
+    "macro_f1": 0.7587946531922048,
+    "false_alarm_rate": 0.07135874877810362,
+    "critical_recall": 0.9782608695652174,
+    "critical_missed_as_normal": 0.017241379310344827,
+    "confusion": [
+     [
+      950,
+      34,
+      39
+     ],
+     [
+      166,
+      108,
+      63
+     ],
+     [
+      23,
+      6,
+      1305
+     ]
+    ]
+   }
+  }
+ },
+ "lead_ml": [
+  22,
+  18,
+  5,
+  9,
+  13,
+  12,
+  19,
+  18
+ ],
+ "lead_rule": [
+  35,
+  29,
+  2,
+  6,
+  10,
+  9,
+  35,
+  34
+ ],
+ "params": 502,
+ "seed": 44,
+ "train_rows": 8082,
+ "test_rows": 2694
+}
